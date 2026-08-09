@@ -21,9 +21,10 @@ export function cleanText(value: unknown, max = 5000) {
 
 export function optionalDate(value: unknown) {
   if (value === null || value === "" || value === undefined) return null;
-  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) return undefined;
+  if (typeof value !== "string") return undefined;
   const zoned = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(value) ? `${value}-03:00` : value;
-  return new Date(zoned).toISOString();
+  const timestamp = Date.parse(zoned);
+  return Number.isNaN(timestamp) ? undefined : new Date(timestamp).toISOString();
 }
 
 export function validHttpUrl(value: string) {

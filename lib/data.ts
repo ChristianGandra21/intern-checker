@@ -8,9 +8,12 @@ function applyFilters(jobs: Job[], filters: JobFilters) {
   const query = filters.query?.trim().toLocaleLowerCase("pt-BR");
   return jobs.filter((job) => {
     const haystack = `${job.title} ${job.company} ${job.description}`.toLocaleLowerCase("pt-BR");
+    const includedDate = saoPauloDateKey(job.discovered_at);
     return (!query || haystack.includes(query)) && (!filters.source || job.source === filters.source)
       && (!filters.mode || job.work_mode === filters.mode)
-      && (!filters.minScore || job.score >= filters.minScore);
+      && (!filters.minScore || job.score >= filters.minScore)
+      && (!filters.discoveredFrom || includedDate >= filters.discoveredFrom)
+      && (!filters.discoveredTo || includedDate <= filters.discoveredTo);
   });
 }
 

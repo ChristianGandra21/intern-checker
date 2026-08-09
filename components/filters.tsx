@@ -1,8 +1,8 @@
-import { Search, SlidersHorizontal } from "lucide-react";
+import { CalendarDays, Search, SlidersHorizontal } from "lucide-react";
 
 export function Filters({ values }: { values: Record<string, string | undefined> }) {
   return (
-    <form className="surface grid gap-3 p-4 lg:grid-cols-[minmax(260px,1.7fr)_repeat(2,minmax(150px,.7fr))_auto]" aria-label="Filtros de vagas">
+    <form className="surface grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-[minmax(240px,1.5fr)_repeat(2,minmax(145px,.65fr))_repeat(2,minmax(150px,.7fr))_auto]" aria-label="Filtros de vagas">
       <input type="hidden" name="tier" value={values.tier || "radar"} />
       <label className="relative block">
         <span className="sr-only">Buscar por vaga ou empresa</span>
@@ -27,7 +27,15 @@ export function Filters({ values }: { values: Record<string, string | undefined>
           <option value="90">Score 90+</option>
         </select>
       </label>
-      <button className="flex min-h-12 cursor-pointer items-center justify-center gap-2 bg-[var(--green)] px-5 font-semibold text-white transition-colors duration-200 hover:bg-[var(--green-dark)]">
+      <label className="relative">
+        <span className="eyebrow mb-1.5 flex items-center gap-1.5 text-[var(--ink-soft)]"><CalendarDays size={14} />Incluída desde</span>
+        <input name="date_from" type="date" defaultValue={values.date_from} max={values.date_to} className="field" />
+      </label>
+      <label>
+        <span className="eyebrow mb-1.5 block text-[var(--ink-soft)]">Incluída até</span>
+        <input name="date_to" type="date" defaultValue={values.date_to} min={values.date_from} className="field" />
+      </label>
+      <button className="flex min-h-12 cursor-pointer items-center justify-center gap-2 self-end bg-[var(--green)] px-5 font-semibold text-white transition-colors duration-200 hover:bg-[var(--green-dark)]">
         <SlidersHorizontal size={18} aria-hidden="true" /> Filtrar
       </button>
     </form>

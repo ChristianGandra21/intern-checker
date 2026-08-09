@@ -1,6 +1,6 @@
 "use client";
 
-import { ArchiveX, ArrowUpRight, BriefcaseBusiness, LoaderCircle, MapPin, RotateCcw, X } from "lucide-react";
+import { ArchiveX, ArrowUpRight, BriefcaseBusiness, CalendarDays, LoaderCircle, MapPin, RotateCcw, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { Job } from "@/lib/types";
@@ -10,7 +10,7 @@ const modeLabel = { remote: "Remoto", hybrid: "Híbrido", onsite: "Presencial", 
 
 function formatDate(value: string | null) {
   if (!value) return "data não informada";
-  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" }).format(new Date(value));
+  return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "short", year: "numeric" }).format(new Date(value));
 }
 
 function Score({ value }: { value: number }) {
@@ -63,7 +63,7 @@ export function JobList({ jobs, isDemo, authenticated, savedJobIds }: { jobs: Jo
   return (
     <div className="surface overflow-hidden">
       <div className="hidden grid-cols-[minmax(340px,2.4fr)_minmax(150px,1fr)_120px_110px_150px] gap-4 border-b border-[var(--line)] bg-[var(--ink)] px-5 py-3 text-white lg:grid">
-        {['Oportunidade', 'Local / modelo', 'Origem', 'Score', 'Meu radar'].map((label) => <span key={label} className="eyebrow text-white/70">{label}</span>)}
+        {['Oportunidade', 'Local / modelo', 'Origem / inclusão', 'Score', 'Meu radar'].map((label) => <span key={label} className="eyebrow text-white/70">{label}</span>)}
       </div>
       <div className="divide-y divide-[var(--line)]">
         {visibleJobs.map((job) => (
@@ -91,7 +91,8 @@ export function JobList({ jobs, isDemo, authenticated, savedJobIds }: { jobs: Jo
               <span className="eyebrow inline-block bg-[var(--paper)] px-2 py-1 text-[var(--ink-soft)]">{job.source}</span>
               {(job.source_count || 1) > 1 && <span className="mt-1 block text-xs text-[var(--ink-soft)]">Divulgada por {job.source_count} fontes</span>}
               {job.profile_score !== null && job.profile_score !== undefined && <span className="mono mt-1 block text-[10px] text-[var(--green)]">perfil {job.profile_score}</span>}
-              <span className="mono text-xs text-[var(--ink-soft)] lg:mt-2 lg:block">{formatDate(job.published_at)}</span>
+              <span className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-[var(--green)]"><CalendarDays size={14} /><span>Incluída {formatDate(job.discovered_at)}</span></span>
+              {job.published_at && <span className="mono mt-1 block text-[10px] text-[var(--ink-soft)]">Publicada {formatDate(job.published_at)}</span>}
             </div>
             <div className="hidden lg:block"><Score value={job.score} /></div>
             <div className="grid gap-2">

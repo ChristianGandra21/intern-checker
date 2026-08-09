@@ -16,6 +16,8 @@ export async function GET(request: NextRequest) {
     mode: params.get("mode") ?? undefined,
     status: params.get("status") ?? undefined,
     minScore: Number(params.get("min_score") ?? 0),
+    discoveredFrom: params.get("date_from") ?? undefined,
+    discoveredTo: params.get("date_to") ?? undefined,
     tier: params.get("tier") === "strong" ? "strong" : "radar",
     page: Math.max(1, Number(params.get("page")) || 1),
     pageSize: Math.min(50, Math.max(1, Number(params.get("page_size")) || 20)),

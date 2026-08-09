@@ -13,8 +13,8 @@ const valueOf = (value: string | string[] | undefined) => Array.isArray(value) ?
 export default async function Home({ searchParams }: { searchParams: SearchParams }) {
   const raw = await searchParams;
   const selectedTier: "radar" | "strong" = valueOf(raw.tier) === "strong" ? "strong" : "radar";
-  const values = { q: valueOf(raw.q), mode: valueOf(raw.mode), score: valueOf(raw.score), tier: selectedTier };
-  const data = await getDashboardData({ query: values.q, mode: values.mode, minScore: Number(values.score ?? 0), tier: values.tier, page: Number(valueOf(raw.page)) || 1, pageSize: 20 });
+  const values = { q: valueOf(raw.q), mode: valueOf(raw.mode), score: valueOf(raw.score), date_from: valueOf(raw.date_from), date_to: valueOf(raw.date_to), tier: selectedTier };
+  const data = await getDashboardData({ query: values.q, mode: values.mode, minScore: Number(values.score ?? 0), discoveredFrom: values.date_from, discoveredTo: values.date_to, tier: values.tier, page: Number(valueOf(raw.page)) || 1, pageSize: 20 });
   const tabHref = (tier: "radar" | "strong") => {
     const params = new URLSearchParams();
     Object.entries({ ...values, tier }).forEach(([key, value]) => value && value !== "0" && params.set(key, value));

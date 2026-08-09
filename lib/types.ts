@@ -139,6 +139,8 @@ export interface JobFilters {
   mode?: string;
   status?: string;
   minScore?: number;
+  discoveredFrom?: string;
+  discoveredTo?: string;
   tier?: "radar" | "strong";
   page?: number;
   pageSize?: number;

@@ -1,0 +1,55 @@
+{
+  "tech_strong": [
+    "ciencia de dados", "data science", "engenharia de dados", "data engineering",
+    "inteligencia artificial", "artificial intelligence", "machine learning",
+    "desenvolvimento de software", "engenharia de software", "software engineering",
+    "desenvolvimento de sistemas", "seguranca da informacao", "cyber security",
+    "cybersecurity", "business intelligence", "data analytics", "people analytics",
+    "product analytics", "quality assurance", "data quality", "inteligencia de negocios",
+    "ai engineering", "computacao em nuvem", "cloud computing", "power platform",
+    "low code", "no code", "implantacao de sistemas", "suporte tecnico", "help desk"
+  ],
+  "tech_title": [
+    "dados", "data analyst", "data engineer", "data scientist", "software",
+    "desenvolvedor", "desenvolvedora", "programador", "programadora", "backend",
+    "back-end", "frontend", "front-end", "fullstack", "full-stack", "devops",
+    "qa", "produto digital", "product", "ux", "ui", "ciberseguranca", "cloud",
+    "infraestrutura de ti", "infraestrutura", "redes de computadores", "redes", "suporte",
+    "tecnologia da informacao", "ti", "ia", "analytics", "front", "back", "sap",
+    "automacao", "sistemas de informacao", "engenharia da computacao", "ciencia da computacao"
+  ],
+  "tech_skills": [
+    "python", "sql", "java", "javascript", "typescript", "react", "node.js",
+    "api", "power bi", "tableau", "pytorch", "tensorflow", "aws", "azure"
+  ],
+  "general_program": [
+    "programa de estagio", "programa estagio", "jovens talentos", "early careers",
+    "internship program", "programa de talentos"
+  ],
+  "non_tech": [
+    "enfermagem", "tecnico de enfermagem", "medicina", "odontologia", "fisioterapia",
+    "nutricao", "farmacia", "biomedicina", "psicologia clinica", "assistencia social",
+    "recursos humanos", "rh", "departamento pessoal", "recrutamento e selecao", "folha de pagamento",
+    "direito", "juridico", "juridica", "advocacia", "engenharia mecanica",
+    "engenharia eletrica", "engenharia quimica", "engenharia civil", "engenharia ambiental",
+    "engenharia de materiais", "engenharia de alimentos", "agronomia", "quimica",
+    "laboratorio quimico", "marketing", "contabilidade", "administracao", "comercial"
+  ],
+  "ambiguous": ["engenharia", "estagio tecnico", "assistente", "operacoes"],
+  "categories": {
+    "data_ai": ["dados", "data", "analytics", "business intelligence", "inteligencia artificial", "machine learning", "people analytics", "power bi"],
+    "software": ["software", "desenvolvedor", "desenvolvedora", "desenvolvimento de sistemas", "backend", "frontend", "fullstack", "programador", "programadora", "java", "javascript", "react"],
+    "qa": ["quality assurance", "data quality", "qa", "testes de software"],
+    "product_design": ["produto digital", "product", "ux", "ui", "design de produto"],
+    "infra_cloud_security": ["infraestrutura", "cloud", "devops", "redes", "ciberseguranca", "seguranca da informacao", "suporte tecnico", "help desk"],
+    "administration": ["administracao", "administrativo", "administrativa"],
+    "international_relations": ["relacoes internacionais", "comercio exterior"],
+    "hr": ["recursos humanos", "rh", "departamento pessoal", "recrutamento e selecao"],
+    "health": ["enfermagem", "medicina", "odontologia", "fisioterapia", "nutricao", "farmacia", "biomedicina"],
+    "law": ["direito", "juridico", "juridica", "advocacia"],
+    "chemistry": ["quimica", "laboratorio quimico"],
+    "engineering_nontech": ["engenharia mecanica", "engenharia eletrica", "engenharia quimica", "engenharia civil", "engenharia ambiental", "engenharia de materiais", "agronomia"],
+    "marketing_sales": ["marketing", "comercial", "vendas"],
+    "finance_accounting": ["financas", "financeiro", "contabilidade", "contabil"]
+  }
+}

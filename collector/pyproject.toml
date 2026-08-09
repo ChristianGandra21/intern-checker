@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "intern-checker"
+version = "0.1.0"
+description = "Coletor multi-fonte de vagas de estágio em Dados, IA e ML"
+requires-python = ">=3.11"
+dependencies = [
+  "aiohttp>=3.11,<4",
+  "beautifulsoup4>=4.12,<5",
+  "ddgs>=9,<10",
+  "feedparser>=6.0,<7",
+  "openpyxl>=3.1,<4",
+  "pydantic>=2.10,<3",
+  "python-dateutil>=2.9,<3",
+  "PyYAML>=6.0,<7",
+  "rapidfuzz>=3.10,<4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3,<9", "pytest-asyncio>=0.25,<1", "ruff>=0.9,<1"]
+dynamic = ["playwright>=1.49,<2"]
+
+[project.scripts]
+intern-checker = "intern_checker.main:cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["intern_checker*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"

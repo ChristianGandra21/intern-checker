@@ -1,0 +1,255 @@
+search:
+  max_results: 35
+  concurrency: 6
+  region: br-pt
+  timelimit: y
+
+pages:
+  concurrency: 6
+
+enrichment:
+  concurrency: 10
+  limit: 400
+
+ats:
+  concurrency: 4
+  # Fontes descobertas são persistidas no backend; entradas curadas podem ser adicionadas aqui.
+  sources: []
+  # Exemplo: { name: Acme, company: Acme, adapter: greenhouse, identifier: acme, enabled: true }
+
+community_sheet:
+  spreadsheet_id: 13lutgdWIY7ezc-6PihVQcjWaqsdk0Pb-SBIEDpHx9as
+  timezone: America/Sao_Paulo
+  current_month_only: true
+
+rendered_pages:
+  concurrency: 2
+  pages:
+    - name: Infojobs — estágio 2027
+      source: Infojobs
+      company: Não informada
+      url: https://www.infojobs.com.br/empregos.aspx?palabra=est%C3%A1gio%202027
+      item_selector: a[href]
+      limit: 100
+    - name: Catho — estágio 2027
+      source: Catho
+      company: Não informada
+      url: https://www.catho.com.br/vagas/estagio-2027/
+      item_selector: a[href]
+      limit: 100
+    - name: Solides — estágio 2027
+      source: Solides
+      company: Não informada
+      url: https://vagas.solides.com.br/vagas?search=est%C3%A1gio%202027
+      item_selector: a[href]
+      limit: 100
+
+social:
+  concurrency: 6
+  bluesky:
+    - query: '"programa de estágio" 2027'
+      limit: 100
+    - query: '"estágio 2027" OR "jovens talentos 2027"'
+      limit: 100
+    - query: '"internship 2027" Brazil remote'
+      limit: 100
+  reddit:
+    - query: '"programa de estágio" 2027 OR "estágio 2027"'
+      limit: 100
+    - subreddit: brdev
+      query: 'estágio 2027 OR programa de estágio OR jovens talentos'
+      limit: 100
+    - subreddit: brasil
+      query: '"programa de estágio" 2027 OR "jovens talentos"'
+      limit: 100
+    - subreddit: cscareerquestions
+      query: 'internship 2027 Brazil remote'
+      limit: 100
+  hackernews:
+    - query: 'internship 2027 Brazil remote'
+      limit: 50
+    - query: '"early careers" 2027 remote'
+      limit: 50
+  mastodon:
+    - instance: https://mastodon.social
+      tag: estagio
+      limit: 40
+    - instance: https://mastodon.social
+      tag: vagas
+      limit: 40
+    - instance: https://fosstodon.org
+      tag: internship
+      limit: 40
+  telegram:
+    - channel: vagasremotas
+      query: estágio 2027
+      limit: 40
+    - channel: vagasdeestagio
+      query: 2027
+      limit: 40
+
+scoring:
+  # Usado apenas para ranking/dashboard. A ingestion não descarta por score por padrão.
+  minimum: 55
+
+searches:
+  - source: Web
+    query: '(estágio OR estagiário OR intern) (dados OR analytics OR "inteligência artificial" OR "machine learning") ("São Paulo" OR remoto OR Brasil)'
+  - source: Web
+    query: '(estágio OR estagiário OR intern) (software OR desenvolvimento OR backend OR frontend OR QA) ("São Paulo" OR remoto OR Brasil)'
+  - source: Web
+    query: '(estágio OR estagiário OR intern) ("produto digital" OR product OR UX OR UI) ("São Paulo" OR remoto OR Brasil)'
+  - source: Web
+    query: '(estágio OR estagiário OR intern) (cloud OR devops OR infraestrutura OR cibersegurança OR "segurança da informação") ("São Paulo" OR remoto OR Brasil)'
+  - source: Web
+    query: '("programa de estágio" OR "jovens talentos") (tecnologia OR dados OR software OR produto) (Brasil OR "São Paulo" OR remoto)'
+  - source: LinkedIn
+    query: 'site:linkedin.com/jobs/view ("programa de estágio 2027" OR "estágio 2027" OR internship) ("São Paulo" OR remoto OR Brasil)'
+  - source: LinkedIn
+    query: 'site:linkedin.com/jobs/view ("estágio" OR "estagiário") ("2027" OR "2027.1" OR "1.2027")'
+  - source: X
+    query: 'site:x.com (vaga OR oportunidade OR inscrições) ("programa de estágio" OR "estágio") 2027'
+  - source: X
+    query: 'site:x.com ("estágio 2027" OR "programa de estágio 2027" OR "jovens talentos 2027")'
+  - source: Bluesky
+    query: 'site:bsky.app ("estágio 2027" OR "programa de estágio 2027" OR "jovens talentos 2027")'
+  - source: Threads
+    query: 'site:threads.net ("estágio 2027" OR "programa de estágio 2027")'
+  - source: Gupy
+    query: 'site:gupy.io ("programa de estágio 2027" OR "estágio 2027" OR "estagiário 2027")'
+  - source: Gupy
+    query: 'site:gupy.io/jobs ("estágio" OR "estagiário") ("2027" OR "primeiro semestre")'
+  - source: Gupy
+    query: 'site:portal.gupy.io/job-search ("estágio" OR "programa de estágio" OR "jovens talentos") 2027'
+  - source: Vagas.com
+    query: 'site:vagas.com.br/vagas-de ("estágio" OR "estagiário" OR "programa de estágio") 2027'
+  - source: CIEE
+    query: 'site:portal.ciee.org.br ("estágio" OR "programa de estágio") 2027'
+  - source: Nube
+    query: 'site:nube.com.br ("estágio" OR "programa de estágio") 2027'
+  - source: Cia de Talentos
+    query: 'site:ciadetalentos.com.br ("estágio" OR "jovens talentos" OR "early careers") 2027'
+  - source: Cia de Estágios
+    query: 'site:ciadeestagios.com.br ("estágio" OR "programa de estágio") 2027'
+  - source: Eureca
+    query: 'site:eureca.me ("estágio" OR "jovens talentos" OR "programa") 2027'
+  - source: 99jobs
+    query: 'site:99jobs.com ("estágio" OR "jovens talentos" OR "programa de estágio") 2027'
+  - source: Indeed
+    query: 'site:br.indeed.com ("estágio" OR intern) ("2027" OR "2027.1" OR "primeiro semestre") ("São Paulo" OR remoto OR Brasil)'
+  - source: Glassdoor
+    query: 'site:glassdoor.com.br ("estágio" OR intern) 2027 ("São Paulo" OR remoto OR Brasil)'
+  - source: The Muse
+    query: 'site:themuse.com ("intern" OR internship) 2027 Brazil remote'
+  - source: Lever
+    query: 'site:jobs.lever.co (estágio OR intern OR internship OR "early careers") 2027 Brazil'
+  - source: Greenhouse
+    query: 'site:boards.greenhouse.io (estágio OR intern OR internship OR "early careers") 2027 Brazil'
+  - source: Ashby
+    query: 'site:jobs.ashbyhq.com (estágio OR intern OR internship OR "early careers") 2027 Brazil'
+  - source: Workday
+    query: 'site:myworkdayjobs.com (estágio OR intern OR internship OR "early careers") 2027 Brazil'
+  - source: Forums
+    query: 'site:reddit.com (estágio OR internship OR "programa de estágio") 2027 Brasil'
+  - source: Forums
+    query: 'site:dev.to (internship OR estágio) 2027 Brazil'
+  - source: Communities
+    query: 'site:github.com (estágio OR internship) 2027 Brazil vagas'
+  - source: Web
+    query: '("programa de estágio 2027" OR "estágio 2027" OR "processo seletivo estágio 2027") ("São Paulo" OR remoto OR Brasil)'
+  - source: Web
+    query: '("inscrições abertas" OR "estão abertas") ("programa de estágio" OR "estágio") 2027'
+  - source: Web
+    query: '("estágio 2027.1" OR "estágio 1.2027" OR "primeiro semestre de 2027")'
+  - source: Web
+    query: '("jovens talentos 2027" OR "early careers 2027" OR "summer intern 2027") (Brasil OR Brazil OR remoto OR remote)'
+  - source: Web
+    query: '("programa de estágio" "2027/1" OR "programa de estágio" "2027-1" OR "programa de estágio" "1.2027")'
+
+# RSS funciona sem chave. Novos feeds podem ser acrescentados à lista.
+feeds:
+  - name: Google News — Programa de Estágio 2027
+    source: RSS
+    url: "https://news.google.com/rss/search?q=%22programa%20de%20est%C3%A1gio%202027%22%20OR%20%22est%C3%A1gio%202027%22&hl=pt-BR&gl=BR&ceid=BR:pt-419"
+    limit: 30
+  - name: Google News — Inscrições Estágio 2027
+    source: RSS
+    url: "https://news.google.com/rss/search?q=%28%22inscri%C3%A7%C3%B5es%20abertas%22%20OR%20%22processo%20seletivo%22%29%20%28%22programa%20de%20est%C3%A1gio%22%20OR%20est%C3%A1gio%29%202027&hl=pt-BR&gl=BR&ceid=BR:pt-419"
+    limit: 30
+  - name: Google News — Tecnologia Estágio 2027
+    source: RSS
+    url: "https://news.google.com/rss/search?q=%28tecnologia%20OR%20dados%20OR%20%22engenharia%20de%20software%22%20OR%20%22engenharia%20de%20dados%22%20OR%20computa%C3%A7%C3%A3o%20OR%20%22produto%20digital%22%29%20%28%22est%C3%A1gio%202027%22%20OR%20%22programa%20de%20est%C3%A1gio%202027%22%29&hl=pt-BR&gl=BR&ceid=BR:pt-419"
+    limit: 30
+  - name: Google News — Jovens Talentos 2027
+    source: RSS
+    url: "https://news.google.com/rss/search?q=%22jovens%20talentos%202027%22%20OR%20%22early%20careers%202027%22%20Brasil&hl=pt-BR&gl=BR&ceid=BR:pt-419"
+    limit: 30
+  - name: Google News — Portais de Estágio 2027
+    source: RSS
+    url: "https://news.google.com/rss/search?q=%28Gupy%20OR%20CIEE%20OR%20Nube%20OR%20Eureca%20OR%20%2299jobs%22%29%20%28%22est%C3%A1gio%202027%22%20OR%20%22programa%20de%20est%C3%A1gio%22%29&hl=pt-BR&gl=BR&ceid=BR:pt-419"
+    limit: 30
+
+public_pages:
+  - name: Gupy — estágio 2027
+    source: Gupy
+    company: Não informada
+    url: https://portal.gupy.io/job-search/term=est%C3%A1gio%202027
+    limit: 120
+  - name: Gupy — programa de estágio
+    source: Gupy
+    company: Não informada
+    url: https://portal.gupy.io/job-search/term=programa%20de%20est%C3%A1gio
+    limit: 120
+  - name: Vagas.com — estágio
+    source: Vagas.com
+    company: Não informada
+    url: https://www.vagas.com.br/vagas-de-estagio
+    limit: 120
+  - name: CIEE — estudantes
+    source: CIEE
+    company: Não informada
+    url: https://portal.ciee.org.br/estudantes/
+    limit: 100
+  - name: Nube — vagas
+    source: Nube
+    company: Não informada
+    url: https://www.nube.com.br/estudantes/vagas
+    limit: 100
+  - name: Cia de Estágios — vagas
+    source: Cia de Estágios
+    company: Não informada
+    url: https://www.ciadeestagios.com.br/vagas/
+    limit: 100
+  - name: Cia de Talentos — vagas
+    source: Cia de Talentos
+    company: Não informada
+    url: https://www.ciadetalentos.com.br/pt/vagas/
+    limit: 100
+  - name: Eureca — oportunidades
+    source: Eureca
+    company: Não informada
+    url: https://eureca.me/
+    limit: 80
+  - name: 99jobs — oportunidades
+    source: 99jobs
+    company: Não informada
+    url: https://www.99jobs.com/
+    limit: 80
+
+# Páginas específicas usam seletores CSS por empresa. A lista começa vazia até
+# as empresas-alvo serem definidas, evitando scrapers genéricos que geram ruído.
+companies: []
+# Exemplo:
+#  - name: Empresa Exemplo
+#    url: https://empresa.example/carreiras
+#    item_selector: article.job
+#    title_selector: h2
+#    link_selector: a
+#    description_selector: p
+#    location: São Paulo, SP
+
+google_alerts:
+  host: imap.gmail.com
+  port: 993
+  folder: INBOX
+  search: '(FROM "googlealerts-noreply@google.com" UNSEEN)'

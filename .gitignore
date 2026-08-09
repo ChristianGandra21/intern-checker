@@ -1,0 +1,27 @@
+# JavaScript
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+var/sessions/
+var/runs/
+
+# Environment and generated files
+.env
+.env.local
+!.env.example
+exports/*.csv
+exports/*.xlsx
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/

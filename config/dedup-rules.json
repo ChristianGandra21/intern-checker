@@ -1,0 +1,11 @@
+{
+  "generic_terms": [
+    "estagio", "estagiario", "estagiaria", "intern", "internship", "programa", "vagas",
+    "vaga", "abre", "abrem", "abertas", "abertos", "inscricoes", "processo", "seletivo",
+    "oportunidade", "oportunidades", "candidate", "se", "jovens", "talentos", "com",
+    "para", "em", "de", "do", "da", "dos", "das", "e", "no", "na", "nova", "novo",
+    "sao", "paulo", "rio", "janeiro", "remoto", "brasil", "portal", "noticias", "2027"
+  ],
+  "program_signals": ["programa de estagio", "programa estagio", "jovens talentos", "internship program", "early careers"],
+  "generic_titles": ["estagio", "estagiario", "estagiaria", "intern", "programa de estagio", "vaga de estagio"]
+}

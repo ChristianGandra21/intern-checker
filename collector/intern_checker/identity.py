@@ -36,6 +36,15 @@ class DedupIdentity:
     tokens: list[str]
 
 
+@dataclass(frozen=True)
+class DedupContext:
+    identity: DedupIdentity
+    company: str
+    location: str
+    program: bool
+    tokens: frozenset[str]
+
+
 def _digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
@@ -86,34 +95,41 @@ def build_dedup_identity(job: JobCandidate) -> DedupIdentity:
     )
 
 
-def likely_same_opportunity(left_job: JobCandidate, right_job: JobCandidate) -> tuple[bool, int, str]:
-    left = build_dedup_identity(left_job)
-    right = build_dedup_identity(right_job)
-    if left.key == right.key:
-        return True, min(left.confidence, right.confidence), left.reasons[0]
-    if left.cycle and right.cycle and left.cycle != right.cycle:
+def build_dedup_context(job: JobCandidate) -> DedupContext:
+    identity = build_dedup_identity(job)
+    return DedupContext(
+        identity=identity,
+        company=_company(job.company),
+        location=plain(job.location),
+        program=_is_program(job.title),
+        tokens=frozenset(identity.tokens),
+    )
+
+
+def likely_same_context(left: DedupContext, right: DedupContext) -> tuple[bool, int, str]:
+    left_identity = left.identity
+    right_identity = right.identity
+    if left_identity.key == right_identity.key:
+        return True, min(left_identity.confidence, right_identity.confidence), left_identity.reasons[0]
+    if left_identity.cycle and right_identity.cycle and left_identity.cycle != right_identity.cycle:
         return False, 0, "ciclos diferentes"
-    left_company = _company(left_job.company)
-    right_company = _company(right_job.company)
-    if left_company and right_company and left_company != right_company:
+    if left.company and right.company and left.company != right.company:
         return False, 0, "empresas diferentes"
-    shared = set(left.tokens) & set(right.tokens)
+    shared = left.tokens & right.tokens
     overlap = len(shared) / max(1, min(len(left.tokens), len(right.tokens)))
     distinctive = [token for token in shared if len(token) >= 3]
-    programs = _is_program(left_job.title) and _is_program(right_job.title)
+    programs = left.program and right.program
     same_program = programs and (
         overlap >= 0.6 or len(distinctive) >= 2
     )
-    left_location = plain(left_job.location)
-    right_location = plain(right_job.location)
     compatible_location = (
-        not left_location
-        or not right_location
-        or left_location == right_location
-        or left_location in right_location
-        or right_location in left_location
+        not left.location
+        or not right.location
+        or left.location == right.location
+        or left.location in right.location
+        or right.location in left.location
     )
-    same_role = not programs and bool(left_company and right_company) and compatible_location and overlap >= 0.85
+    same_role = not programs and bool(left.company and right.company) and compatible_location and overlap >= 0.85
     same = same_program or same_role
     confidence = max(88 if same_role else 80, round(overlap * 100)) if same else round(overlap * 100)
     reason = (
@@ -122,3 +138,7 @@ def likely_same_opportunity(left_job: JobCandidate, right_job: JobCandidate) -> 
         else "programas com entidade e termos distintivos compatíveis"
     )
     return same, confidence, reason
+
+
+def likely_same_opportunity(left_job: JobCandidate, right_job: JobCandidate) -> tuple[bool, int, str]:
+    return likely_same_context(build_dedup_context(left_job), build_dedup_context(right_job))

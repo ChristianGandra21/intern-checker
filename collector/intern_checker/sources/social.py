@@ -11,6 +11,7 @@ from dateutil import parser as date_parser
 
 from ..http import random_headers
 from ..models import JobCandidate
+from ..prefilter import qualified_social_lead
 
 log = logging.getLogger(__name__)
 
@@ -209,4 +210,7 @@ async def collect_social_sources(config: dict, concurrency: int = 6) -> list[Job
                     return []
 
         results = await asyncio.gather(*(guarded(name, task) for name, task in tasks))
-    return [job for batch in results for job in batch]
+    collected = [job for batch in results for job in batch]
+    kept = [job for job in collected if qualified_social_lead(job)]
+    log.info("Social pre-filter preview: collected=%d qualified=%d hidden=%d", len(collected), len(kept), len(collected) - len(kept))
+    return collected

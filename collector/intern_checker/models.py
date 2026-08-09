@@ -31,7 +31,7 @@ class JobCandidate(BaseModel):
     target_fit: Literal["confirmed", "probable", "unknown", "incompatible"] = "unknown"
     location_fit: Literal["confirmed", "probable", "unknown", "incompatible"] = "unknown"
     display_reasons: list[str] = Field(default_factory=list)
-    classification_version: str = "radar-v1"
+    classification_version: str = "radar-v2"
     match_location: bool = False
     match_start: bool = False
     fingerprint: str | None = None

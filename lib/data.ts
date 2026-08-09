@@ -18,7 +18,9 @@ function applyFilters(jobs: Job[], filters: JobFilters) {
 }
 
 function rankJobs(jobs: Job[]) {
-  const tier = (job: Job) => job.display_tier === "strong" ? 2 : job.display_tier === "watchlist" ? 1 : 0;
+  const tier = (job: Job) => job.display_tier === "strong" ? 3
+    : job.display_tier === "watchlist" && job.candidate_kind !== "lead" ? 2
+      : job.display_tier === "watchlist" ? 1 : 0;
   return [...jobs].sort((left, right) => tier(right) - tier(left)
     || (right.profile_score || 0) - (left.profile_score || 0)
     || (right.quality_score || 0) - (left.quality_score || 0)

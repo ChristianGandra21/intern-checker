@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validIngestKey } from "@/lib/ingest-auth";
-import { buildDedupIdentity, likelySameOpportunity } from "@/lib/job-identity";
-import { classifyDisplay } from "@/lib/job-display";
+import { buildDedupIdentity, likelySameDedupIdentity } from "@/lib/job-identity";
+import { classifyDisplay, hasKnownForeignLocation } from "@/lib/job-display";
 import { checkJobUrl, validateJob, type JobValidation, type JobValidationInput } from "@/lib/job-validation";
 import { getSupabaseAdmin, hasDatabaseConfig } from "@/lib/supabase";
 import type { JobStatus } from "@/lib/types";
@@ -63,23 +63,25 @@ export async function POST(request: NextRequest) {
   const dedupMeta = new Map<string, ReturnType<typeof buildDedupIdentity>>();
   const groupMatch = new Map<string, { confidence: number; reason: string }>();
   const primaries: StoredJob[] = [];
+  const primaryByKey = new Map<string, StoredJob>();
+  const primariesByCompany = new Map<string, StoredJob[]>();
+  const primariesByToken = new Map<string, StoredJob[]>();
   for (const job of [...jobs].sort((a, b) => rank(b, validations.get(b.id)!) - rank(a, validations.get(a.id)!))) {
     const validation = validations.get(job.id)!;
     const identity = buildDedupIdentity(job);
     dedupMeta.set(job.id, identity);
     const keys = [validation.canonical_key, validation.identity_key].filter((key): key is string => Boolean(key));
     let matched: { confidence: number; reason: string } | null = null;
-    const primary = primaries.find((candidate) => {
-      const candidateValidation = validations.get(candidate.id)!;
-      const candidateKeys = [candidateValidation.canonical_key, candidateValidation.identity_key, dedupMeta.get(candidate.id)?.key];
-      if (candidateKeys.some((key) => key && [...keys, identity.key].includes(key))) {
-        matched = { confidence: Math.min(identity.confidence, dedupMeta.get(candidate.id)?.confidence || identity.confidence), reason: "identidade objetiva compartilhada" };
-        return true;
-      }
-      const fuzzy = likelySameOpportunity(candidate, job);
+    const exact = [...keys, identity.key].map((key) => primaryByKey.get(key)).find(Boolean);
+    const fuzzyPool = identity.company
+      ? primariesByCompany.get(identity.company) || []
+      : [...new Set(identity.tokens.slice(0, 4).flatMap((token) => primariesByToken.get(token) || []))];
+    const primary = exact || fuzzyPool.find((candidate) => {
+      const fuzzy = likelySameDedupIdentity(dedupMeta.get(candidate.id)!, identity);
       if (fuzzy.same) matched = { confidence: fuzzy.confidence, reason: fuzzy.reason };
       return fuzzy.same;
     });
+    if (exact) matched = { confidence: Math.min(identity.confidence, dedupMeta.get(exact.id)?.confidence || identity.confidence), reason: "identidade objetiva compartilhada" };
     if (primary) {
       duplicateOf.set(job.id, primary.id);
       if (matched) groupMatch.set(job.id, matched);
@@ -87,6 +89,9 @@ export async function POST(request: NextRequest) {
     } else {
       primaries.push(job);
       groupKeyById.set(job.id, identity.key);
+      [...keys, identity.key].forEach((key) => primaryByKey.set(key, job));
+      if (identity.company) primariesByCompany.set(identity.company, [...(primariesByCompany.get(identity.company) || []), job]);
+      identity.tokens.slice(0, 4).forEach((token) => primariesByToken.set(token, [...(primariesByToken.get(token) || []), job]));
     }
   }
 
@@ -123,6 +128,12 @@ export async function POST(request: NextRequest) {
       validation_reasons: primaryId ? [...new Set([...validation.validation_reasons, "duplicada de outra vaga mais completa"])] : validation.validation_reasons,
     };
   });
+  const registryResult = await supabase.from("source_registry").select("id,adapter,identifier,name").eq("origin", "discovered").eq("enabled", true);
+  const sourcesToDisable = (registryResult.data ?? []).filter((source) => !updates.some((job) => {
+    const payload = job.raw_payload && typeof job.raw_payload === "object" ? job.raw_payload as Record<string, unknown> : {};
+    return payload._registry_identifier === source.identifier
+      && job.display_tier !== "hidden" && job.location_fit !== "incompatible" && ["tech", "general"].includes(job.area_fit);
+  }));
   const hiddenByPreferences: typeof updates = [];
   const groupSamples = primaries.slice(0, 20).map((primary) => {
     const members = jobs.filter((job) => primaryFor(job.id) === primary.id);
@@ -162,6 +173,13 @@ export async function POST(request: NextRequest) {
     },
     groups: primaries.length,
     hiddenByPreferences: hiddenByPreferences.length,
+    qualityGuard: {
+      knownNoiseVisible: updates.filter((job) => !job.duplicate_of && job.display_tier !== "hidden" && job.candidate_kind === "noise").length,
+      foreignVisible: updates.filter((job) => !job.duplicate_of && job.display_tier !== "hidden" && hasKnownForeignLocation(job)).length,
+      visibleJobs: updates.filter((job) => !job.duplicate_of && job.display_tier !== "hidden" && job.candidate_kind === "job").length,
+      qualifiedLeads: updates.filter((job) => !job.duplicate_of && job.display_tier === "watchlist" && job.candidate_kind === "lead").length,
+    },
+    sourcesToDisable: sourcesToDisable.map(({ adapter, identifier, name }) => ({ adapter, identifier, name })),
   };
   if (body.dry_run === true) return NextResponse.json({
     ...report,
@@ -170,30 +188,47 @@ export async function POST(request: NextRequest) {
     nonTechSample: updates.filter((job) => job.area_fit === "non_tech").slice(0, 20).map((job) => ({ id: job.id, title: job.title, company: job.company, reasons: job.area_reasons })),
     groupSamples,
     hiddenSample: hiddenByPreferences.slice(0, 20).map((job) => ({ id: job.id, title: job.title, company: job.company, primary_area: job.primary_area, area_tags: job.area_tags })),
+    transitionSample: updates.filter((job) => job.display_tier !== jobs.find((old) => old.id === job.id)?.display_tier).slice(0, 30).map((job) => ({ id: job.id, title: job.title, company: job.company, from: jobs.find((old) => old.id === job.id)?.display_tier, to: job.display_tier, reasons: [...job.validation_reasons, ...job.display_reasons].slice(0, 5) })),
+    visibleSample: updates.filter((job) => !job.duplicate_of && job.display_tier !== "hidden").slice(0, 40).map((job) => ({ id: job.id, title: job.title, company: job.company, candidate_kind: job.candidate_kind, display_tier: job.display_tier, target_fit: job.target_fit, location_fit: job.location_fit })),
+    foreignVisibleSample: updates.filter((job) => !job.duplicate_of && job.display_tier !== "hidden" && hasKnownForeignLocation(job)).map((job) => ({ id: job.id, title: job.title, company: job.company, location: job.location, work_mode: job.work_mode, location_fit: job.location_fit })),
   });
   const radarFields = new Set(["display_tier", "target_fit", "location_fit", "display_reasons", "classification_version"]);
-  const coreUpdates = updates.map((job) => Object.fromEntries(Object.entries(job).filter(([key]) => !radarFields.has(key))));
+  const comparableCoreFields = [
+    "candidate_kind", "quality_score", "validation_status", "validation_reasons", "is_active", "canonical_key",
+    "identity_key", "last_checked_at", "area_fit", "area_reasons", "match_area", "primary_area", "area_tags",
+    "dedup_group_key", "dedup_confidence", "dedup_reasons", "duplicate_of", "status", "verification_level",
+  ];
+  const changed = (next: Record<string, unknown>, previous: Record<string, unknown>, fields: string[]) =>
+    fields.some((field) => JSON.stringify(next[field] ?? null) !== JSON.stringify(previous[field] ?? null));
+  const previousById = new Map(jobs.map((job) => [job.id, job]));
+  const coreUpdates = updates.filter((job) => changed(job, previousById.get(job.id) || {}, comparableCoreFields)).map((job) => Object.fromEntries(Object.entries(job).filter(([key]) => !radarFields.has(key))));
   for (let index = 0; index < coreUpdates.length; index += 300) {
     const update = await supabase.from("jobs").upsert(coreUpdates.slice(index, index + 300), { onConflict: "id" });
     if (update.error) return NextResponse.json({ error: update.error.message }, { status: 400 });
   }
-  for (const [duplicateId, primaryId] of duplicateOf) {
-    const sourceResult = await supabase.from("job_sources").select("source,source_url,external_id,raw_candidate_id,first_seen_at,last_seen_at").eq("job_id", duplicateId);
-    if (sourceResult.error) continue;
-    if (sourceResult.data?.length) {
-      await supabase.from("job_sources").upsert(sourceResult.data.map((source) => ({ ...source, job_id: primaryId })), { onConflict: "job_id,source_url" });
-    }
+  const changedDuplicates = [...duplicateOf].filter(([duplicateId, primaryId]) => previousById.get(duplicateId)?.duplicate_of !== primaryId);
+  for (let index = 0; index < changedDuplicates.length; index += 10) {
+    await Promise.all(changedDuplicates.slice(index, index + 10).map(async ([duplicateId, primaryId]) => {
+      const sourceResult = await supabase.from("job_sources").select("source,source_url,external_id,raw_candidate_id,first_seen_at,last_seen_at").eq("job_id", duplicateId);
+      if (!sourceResult.error && sourceResult.data?.length) {
+        await supabase.from("job_sources").upsert(sourceResult.data.map((source) => ({ ...source, job_id: primaryId })), { onConflict: "job_id,source_url" });
+      }
+    }));
   }
-  const radarUpdate = await supabase.rpc("apply_job_radar_classification", {
-    payload: updates.map((job) => ({
+  const radarPayload = updates.filter((job) => changed(job, previousById.get(job.id) || {}, [...radarFields])).map((job) => ({
       id: job.id,
       display_tier: job.display_tier,
       target_fit: job.target_fit,
       location_fit: job.location_fit,
       display_reasons: job.display_reasons,
       classification_version: job.classification_version,
-    })),
-  });
-  if (radarUpdate.error) return NextResponse.json({ error: radarUpdate.error.message, stage: "radar_classification" }, { status: 400 });
-  return NextResponse.json(report);
+    }));
+  if (radarPayload.length) {
+    const radarUpdate = await supabase.rpc("apply_job_radar_classification", { payload: radarPayload });
+    if (radarUpdate.error) return NextResponse.json({ error: radarUpdate.error.message, stage: "radar_classification" }, { status: 400 });
+  }
+  for (const source of sourcesToDisable) {
+    await supabase.from("source_registry").update({ enabled: false, last_error: "Desabilitada pelo radar-v2: nenhuma vaga elegível em Brasil/SP" }).eq("id", source.id);
+  }
+  return NextResponse.json({ ...report, disabledSources: sourcesToDisable.map(({ adapter, identifier, name }) => ({ adapter, identifier, name })) });
 }

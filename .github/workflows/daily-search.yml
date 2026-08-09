@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "15 11 * * *" # 08:15 em São Paulo (UTC-3)
   workflow_dispatch:
+    inputs:
+      scrape_run_id:
+        description: "ID da execução administrativa no Supabase"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -14,16 +19,33 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Registrar início da execução administrativa
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.scrape_run_id != '' }}
+        env:
+          JOBS_API_URL: ${{ secrets.JOBS_API_URL }}
+          INGEST_API_KEY: ${{ secrets.INGEST_API_KEY }}
+          SCRAPE_RUN_ID: ${{ inputs.scrape_run_id }}
+        run: |
+          JOBS_API_URL="${JOBS_API_URL%/}"
+          STATUS_ROOT="${JOBS_API_URL%/api/jobs}"
+          curl --retry 3 --retry-all-errors --fail-with-body --silent --show-error --max-time 30 \
+            -X PATCH "$STATUS_ROOT/api/scraping/runs/$SCRAPE_RUN_ID/status" \
+            -H "content-type: application/json" \
+            -H "x-ingest-key: $INGEST_API_KEY" \
+            -d "{\"status\":\"running\",\"external_run_id\":\"${{ github.run_id }}\",\"external_url\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}"
+      - id: setup_python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: collector/pyproject.toml
       - name: Instalar coletor
+        id: install
         run: |
           pip install './collector[dynamic]'
           playwright install --with-deps chromium
       - name: Buscar, classificar e entregar vagas
+        id: collect
         env:
           JOBS_API_URL: ${{ secrets.JOBS_API_URL }}
           INGEST_API_KEY: ${{ secrets.INGEST_API_KEY }}
@@ -36,8 +58,13 @@ jobs:
           ALERTS_IMAP_PASSWORD: ${{ secrets.ALERTS_IMAP_PASSWORD }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: intern-checker run --config config/sources.yml --output exports
+          MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          EXTRA_ARGS=()
+          if [ "$MANUAL_RUN" = "true" ]; then EXTRA_ARGS+=(--no-notify); fi
+          intern-checker run --config config/sources.yml --output exports "${EXTRA_ARGS[@]}"
       - name: Revalidar duplicatas, idade e links prioritários
+        id: revalidate
         continue-on-error: true
         env:
           JOBS_API_URL: ${{ secrets.JOBS_API_URL }}
@@ -50,7 +77,42 @@ jobs:
               -H "x-ingest-key: $INGEST_API_KEY" \
               -d '{"check_urls":true,"url_limit":30}'
           fi
+      - name: Registrar término da execução administrativa
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.scrape_run_id != '' }}
+        env:
+          JOBS_API_URL: ${{ secrets.JOBS_API_URL }}
+          INGEST_API_KEY: ${{ secrets.INGEST_API_KEY }}
+          SCRAPE_RUN_ID: ${{ inputs.scrape_run_id }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          COLLECT_OUTCOME: ${{ steps.collect.outcome }}
+          REVALIDATE_OUTCOME: ${{ steps.revalidate.outcome }}
+        run: |
+          JOBS_API_URL="${JOBS_API_URL%/}"
+          STATUS_ROOT="${JOBS_API_URL%/api/jobs}"
+          STATUS="succeeded"
+          EXIT_CODE=0
+          ERROR_MESSAGE=""
+          if [ "$INSTALL_OUTCOME" != "success" ] || [ "$COLLECT_OUTCOME" != "success" ] || [ "$REVALIDATE_OUTCOME" != "success" ]; then
+            STATUS="failed"
+            EXIT_CODE=1
+            ERROR_MESSAGE="Pipeline remota falhou; consulte os logs do GitHub Actions."
+          fi
+          SUMMARY="GitHub Actions: instalação=$INSTALL_OUTCOME; coleta=$COLLECT_OUTCOME; revalidação=$REVALIDATE_OUTCOME"
+          PAYLOAD=$(jq -n \
+            --arg status "$STATUS" \
+            --arg summary "$SUMMARY" \
+            --arg error_message "$ERROR_MESSAGE" \
+            --arg external_run_id "${{ github.run_id }}" \
+            --arg external_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --argjson exit_code "$EXIT_CODE" \
+            '{status:$status,summary:$summary,error_message:$error_message,external_run_id:$external_run_id,external_url:$external_url,exit_code:$exit_code}')
+          curl --retry 3 --retry-all-errors --fail-with-body --silent --show-error --max-time 30 \
+            -X PATCH "$STATUS_ROOT/api/scraping/runs/$SCRAPE_RUN_ID/status" \
+            -H "content-type: application/json" \
+            -H "x-ingest-key: $INGEST_API_KEY" \
+            -d "$PAYLOAD"
       - name: Guardar planilhas do ciclo
+        if: ${{ always() && steps.collect.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: vagas-${{ github.run_id }}

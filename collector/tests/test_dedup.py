@@ -1,3 +1,4 @@
+import intern_checker.dedup as dedup_module
 from intern_checker.dedup import deduplicate
 from intern_checker.identity import likely_same_opportunity
 from intern_checker.models import JobCandidate
@@ -52,3 +53,19 @@ def test_keeps_distinct_roles_at_same_company():
         make_job("Estágio em Desenvolvimento Backend", "https://example.com/jobs/backend"),
     ]
     assert len(deduplicate(jobs)) == 2
+
+
+def test_builds_each_identity_only_once_during_deduplication(monkeypatch):
+    jobs = [make_job(f"Estágio em área {index}", f"https://example.com/jobs/{index}") for index in range(40)]
+    original = dedup_module.build_dedup_context
+    calls = 0
+
+    def counted(job):
+        nonlocal calls
+        calls += 1
+        return original(job)
+
+    monkeypatch.setattr(dedup_module, "build_dedup_context", counted)
+    deduplicate(jobs)
+
+    assert calls == len(jobs)

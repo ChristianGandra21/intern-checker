@@ -1,7 +1,15 @@
 import type { User } from "@supabase/supabase-js";
 
+export type ScrapingExecutionMode = "disabled" | "local" | "github";
+
+export function scrapingExecutionMode(): ScrapingExecutionMode {
+  const configured = process.env.SCRAPING_EXECUTION_MODE?.trim().toLowerCase();
+  if (configured === "local" || configured === "github" || configured === "disabled") return configured;
+  return process.env.LOCAL_SCRAPING_ENABLED === "true" ? "local" : "disabled";
+}
+
 export function scrapingEnabled() {
-  return process.env.LOCAL_SCRAPING_ENABLED === "true";
+  return scrapingExecutionMode() !== "disabled";
 }
 
 export function scrapingAdminEmails() {

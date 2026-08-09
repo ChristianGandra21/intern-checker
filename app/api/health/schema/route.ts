@@ -15,8 +15,12 @@ export async function GET() {
   const v10Decisions = await db.from("user_job_decisions").select("job_id").limit(1);
   const v10Applications = await db.from("tracked_applications").select("deleted_at").limit(1);
   const v10Runs = await db.from("scrape_runs").select("status").limit(1);
+  const v11Runs = await db.from("scrape_runs").select("runner,external_run_id,external_url").limit(1);
   const migration009 = !v9Applications.error && !v9Stages.error;
   const migration010 = !v10Decisions.error && !v10Applications.error && !v10Runs.error;
-  const ready = !v3.error && !v4.error && !v5.error && !v6.error && !v7.error && !v8.error && migration009 && migration010;
-  return NextResponse.json({ configured: true, migration003: !v3.error, migration004: !v4.error, migration005: !v5.error, migration006: !v6.error, migration007: !v7.error, migration008: !v8.error, migration009, migration010, ready }, { status: ready ? 200 : 409 });
+  const migration011 = !v11Runs.error;
+  const v12 = await db.from("ingestion_runs").select("persisted_count,review_count,hidden_count,failure_count,duration_ms").limit(1);
+  const migration012 = !v12.error;
+  const ready = !v3.error && !v4.error && !v5.error && !v6.error && !v7.error && !v8.error && migration009 && migration010 && migration011 && migration012;
+  return NextResponse.json({ configured: true, migration003: !v3.error, migration004: !v4.error, migration005: !v5.error, migration006: !v6.error, migration007: !v7.error, migration008: !v8.error, migration009, migration010, migration011, migration012, ready }, { status: ready ? 200 : 409 });
 }

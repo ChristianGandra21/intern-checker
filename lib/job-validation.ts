@@ -20,6 +20,7 @@ export interface JobValidationInput {
   official_url?: string | null;
   application_url?: string | null;
   raw_payload?: Record<string, unknown>;
+  external_id?: string | null;
   score?: number;
 }
 
@@ -50,10 +51,12 @@ const NON_JOB_TITLE = /\b(concurso|vestibular|fies|curso(?:s)? gratuito|professo
 const SENIOR_TITLE = /\b(s[eê]nior|senior|staff|principal|lead)\b/i;
 const TRAINEE_TITLE = /\btrainee\b/i;
 const APPLICATION_SIGNAL = /\b(inscri[cç][oõ]es abertas?|candidate-se|candidatura|apply|aplicar|processo seletivo|vaga de est[aá]gio|oportunidade de est[aá]gio)\b/i;
-const GENERIC_TITLE = /^(vagas?|carreiras?|oportunidades?|saiba mais|acesse|clique aqui|ver vagas?|est[aá]gio|home|in[ií]cio)$/i;
+const GENERIC_TITLE = /^(vagas?|carreiras?|oportunidades?|saiba mais|acesse|clique aqui|ver vagas?|est[aá]gio|home|in[ií]cio|s[aã]o paulo|brasil|home office(?: \(\d+\))?)$/i;
+const LISTING_TITLE = /(?:^|\b)\d[\d.,]*\s+vagas?(?:\b|\()|\bvagas? (?:de|para)\b|search thousands of jobs|avalia[cç][oõ]es da empresa|empresas que contratam|lista de empresas/i;
+const SEEKER_OR_ARTICLE = /#?opentowork|\b(?:estou|i am) (?:procurando|looking for)\b|\bbusco (?:uma )?(?:vaga|est[aá]gio)\b|\b(?:meu amigo|minha amiga).{0,40}\b(?:procura|busca)\b|\bcomo (?:conseguir|encontrar|se preparar)\b|\bdicas? (?:para|de)\b|\bguia (?:de|para)\b|\brecrutador(?:a|es)?\b/i;
 const LEAD_SOURCES = new Set(["RSS", "Mastodon", "X", "Bluesky", "Reddit", "Hacker News", "Forums", "Communities", "Telegram", "Google Alerts"]);
 const TRUSTED_JOB_SOURCES = new Set(["LinkedIn", "Gupy", "Vagas.com", "Indeed", "Infojobs", "Catho", "Solides", "CIEE", "Nube", "99jobs", "Lever", "Greenhouse", "Ashby", "Workday", "Careers", "Planilha comunitária"]);
-const LISTING_PATHS = [/\/job-search\/?/i, /\/vagas\/?$/i, /\/carreiras\/?$/i, /\/careers\/?$/i, /\/estudantes\/?$/i, /\/empregos\.aspx$/i];
+const LISTING_PATHS = [/\/job-search\/?/i, /\/jobs?\/?$/i, /\/vagas\/?$/i, /\/carreiras\/?$/i, /\/careers\/?$/i, /\/estudantes\/?$/i, /\/empregos\.aspx$/i, /\/search\/?$/i, /\/lista-de-vagas/i];
 
 const plain = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").replace(/\s+/g, " ").trim();
 const unique = (values: string[]) => [...new Set(values)];
@@ -100,10 +103,21 @@ export function identityJobKey(job: JobValidationInput) {
 function isListingUrl(value: string) {
   try {
     const url = new URL(value);
-    return LISTING_PATHS.some((pattern) => pattern.test(url.pathname));
+    return LISTING_PATHS.some((pattern) => pattern.test(url.pathname))
+      || [...url.searchParams.keys()].some((key) => /^(q|query|keyword|location|localidade|page|pagina|filter|filtro)$/i.test(key))
+      || /(?:indeed|glassdoor)\./i.test(url.hostname) && !/\/(?:viewjob|job-listing)\//i.test(url.pathname);
   } catch {
     return true;
   }
+}
+
+function hasIndividualEvidence(job: JobValidationInput) {
+  if (job.official_url || job.application_url || job.external_id || job.raw_payload?.external_id) return true;
+  try {
+    const url = new URL(job.source_url);
+    return /\/(?:jobs?|vagas?|positions?|opportunities)\/(?:view\/)?[a-z0-9][a-z0-9_-]{4,}|\/jobdetail\/|\/vaga-de-|\/vacancy\//i.test(url.pathname)
+      || /\b(jobid|job_id|job|vaga|vacancy)=\w{4,}/i.test(url.search);
+  } catch { return false; }
 }
 
 export function validateJob(job: JobValidationInput): JobValidation {
@@ -124,6 +138,10 @@ export function validateJob(job: JobValidationInput): JobValidation {
   const targetFit = detectTargetFit(job);
   const locationFit = detectLocationFit(job);
 
+  if (job.raw_payload?._prefiltered === true) {
+    quality = 0; kind = "noise"; hardReject = true; reasons.push("descartada pelo pré-filtro antes do enriquecimento");
+  }
+
   if (area.area_fit === "tech") { quality += 15; reasons.push(...area.area_reasons); }
   else if (area.area_fit === "general") { quality += 5; reasons.push(...area.area_reasons); }
   else if (area.area_fit === "non_tech") {
@@ -139,9 +157,7 @@ export function validateJob(job: JobValidationInput): JobValidation {
   else { quality -= 10; reasons.push("início em 2027 não confirmado"); }
   if (targetFit === "incompatible") { quality -= 35; hardReject = true; reasons.push("ciclo explicitamente incompatível"); }
 
-  const locationText = plain(`${job.location || ""} ${text}`);
-  const locationConfirmed = ["confirmed", "probable"].includes(locationFit)
-    || job.work_mode === "remote" || /\b(remoto|remote|home office|sao paulo|osasco|barueri|abc paulista|sp)\b/.test(locationText);
+  const locationConfirmed = ["confirmed", "probable"].includes(locationFit);
   if (locationConfirmed) { quality += 12; reasons.push("São Paulo ou remoto confirmado"); }
   else { quality -= 10; reasons.push("São Paulo ou remoto não confirmado"); }
   if (locationFit === "incompatible") { quality -= 35; hardReject = true; reasons.push("localização explicitamente incompatível"); }
@@ -151,8 +167,11 @@ export function validateJob(job: JobValidationInput): JobValidation {
   if (LEAD_SOURCES.has(job.source) && hasOfficial) { quality += 5; reasons.push("fonte indireta ligada a uma candidatura"); }
   if (APPLICATION_SIGNAL.test(text)) { quality += 8; reasons.push("há sinal de candidatura"); }
 
-  if (GENERIC_TITLE.test(title) || isListingUrl(job.source_url)) {
+  if (GENERIC_TITLE.test(title) || LISTING_TITLE.test(title) || SEEKER_OR_ARTICLE.test(text) || isListingUrl(job.source_url)) {
     quality -= 45; kind = "noise"; hardReject = true; reasons.push("página genérica, não uma vaga individual");
+  }
+  if (kind === "job" && !hasIndividualEvidence(job)) {
+    quality -= 30; kind = "noise"; hardReject = true; reasons.push("URL sem evidência de vaga individual");
   }
   if (title.length > 220) { quality -= 25; reasons.push("título contém texto de post ou página inteira"); }
   const mixedInternshipProgram = INTERNSHIP.test(text) && TRAINEE_TITLE.test(title);

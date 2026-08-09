@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 from ..http import get_text_with_retry, random_headers
 from ..models import JobCandidate
 from ..normalize import plain
+from ..prefilter import is_individual_job_url
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +45,8 @@ async def _fetch_text(session: aiohttp.ClientSession, url: str) -> str:
 
 
 async def _collect_page(session: aiohttp.ClientSession, page: dict) -> list[JobCandidate]:
+    if page.get("enabled", True) is False:
+        return []
     url = page["url"]
     html = await _fetch_text(session, url)
     soup = BeautifulSoup(html, "html.parser")
@@ -63,6 +66,8 @@ async def _collect_page(session: aiohttp.ClientSession, page: dict) -> list[JobC
         if not href or not title or not _valid_url(absolute_url):
             continue
         if not _looks_relevant(candidate_text, include_terms):
+            continue
+        if not is_individual_job_url(absolute_url, source):
             continue
         jobs.append(
             JobCandidate(

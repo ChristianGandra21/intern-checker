@@ -226,7 +226,14 @@ def _search_official_sync(job: JobCandidate) -> str | None:
         "site:jobs.ashbyhq.com OR site:myworkdayjobs.com OR site:vagas.com.br)"
     )
     try:
-        results = DDGS().text(query, region="br-pt", safesearch="moderate", timelimit="y", max_results=6)
+        results = DDGS(timeout=5).text(
+            query,
+            region="br-pt",
+            safesearch="moderate",
+            timelimit="m",
+            max_results=3,
+            backend="yandex",
+        )
         ranked = []
         for result in results:
             value = str(result.get("href") or result.get("url") or "")
@@ -339,7 +346,7 @@ def _merge_enrichment(original: JobCandidate, enriched: JobCandidate) -> JobCand
 
 
 async def enrich_candidates(
-    jobs: list[JobCandidate], concurrency: int = 10, limit: int = 400
+    jobs: list[JobCandidate], concurrency: int = 10, limit: int = 400, timeout_seconds: int = 20
 ) -> list[JobCandidate]:
     # Uma URL é acessada no máximo uma vez; todas as origens continuam no payload.
     representatives: dict[str, JobCandidate] = {}
@@ -375,18 +382,24 @@ async def enrich_candidates(
     semaphore = asyncio.Semaphore(concurrency)
     async with aiohttp.ClientSession(headers=random_headers()) as session:
 
-        async def guarded(job: JobCandidate) -> JobCandidate:
+        async def guarded(key: str, job: JobCandidate) -> tuple[str, JobCandidate]:
             if job.source_type == "official" and len(job.description) >= 300:
-                return job
+                return key, job
             async with semaphore:
                 try:
-                    return await _enrich_one(session, job)
+                    async with asyncio.timeout(timeout_seconds):
+                        return key, await _enrich_one(session, job)
                 except Exception as exc:  # noqa: BLE001
                     log.debug("Enrichment failed for %s: %s", job.source_url, exc)
-                    return job
+                    return key, job
 
-        enriched = await asyncio.gather(*(guarded(job) for _, job in selected))
-    by_url = {key: value for (key, _), value in zip(selected, enriched, strict=True)}
+        tasks = [asyncio.create_task(guarded(key, job)) for key, job in selected]
+        by_url = {}
+        for completed, task in enumerate(asyncio.as_completed(tasks), start=1):
+            key, enriched = await task
+            by_url[key] = enriched
+            if completed % 25 == 0 or completed == len(tasks):
+                log.info("Enrichment progress: %d/%d URLs", completed, len(tasks))
     return [
         _merge_enrichment(job, by_url[key]) if (key := canonical_url(str(job.source_url))) in by_url else job
         for job in jobs

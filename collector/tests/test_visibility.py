@@ -22,9 +22,9 @@ def test_unknown_year_enters_watchlist():
     assert result.target_fit == "unknown"
 
 
-def test_2027_unknown_location_enters_watchlist():
+def test_2027_unknown_location_is_hidden_by_strict_geo_policy():
     result = classify_visibility(make_job("Programa de Estágio 2027", "", "unknown"))
-    assert result.display_tier == "watchlist"
+    assert result.display_tier == "hidden"
     assert result.location_fit == "unknown"
 
 

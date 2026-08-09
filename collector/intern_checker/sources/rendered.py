@@ -7,6 +7,7 @@ from urllib.parse import urljoin, urlsplit
 from bs4 import BeautifulSoup
 
 from ..models import JobCandidate
+from ..prefilter import is_individual_job_url
 
 log = logging.getLogger(__name__)
 
@@ -16,6 +17,8 @@ def _valid_url(value: str) -> bool:
 
 
 async def _collect_rendered_page(page_config: dict) -> list[JobCandidate]:
+    if page_config.get("enabled", True) is False:
+        return []
     try:
         from playwright.async_api import async_playwright
     except ImportError as exc:
@@ -24,7 +27,12 @@ async def _collect_rendered_page(page_config: dict) -> list[JobCandidate]:
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
         page = await browser.new_page()
-        await page.goto(page_config["url"], wait_until="networkidle", timeout=45_000)
+        await page.goto(
+            page_config["url"],
+            wait_until="domcontentloaded",
+            timeout=int(page_config.get("timeout_seconds", 25)) * 1000,
+        )
+        await page.wait_for_timeout(int(page_config.get("settle_ms", 1500)))
         html = await page.content()
         await browser.close()
 
@@ -48,6 +56,8 @@ async def _collect_rendered_page(page_config: dict) -> list[JobCandidate]:
         href = link_node.get("href") if link_node else None
         url = urljoin(page_config["url"], href or "")
         if not title or not href or not _valid_url(url):
+            continue
+        if not is_individual_job_url(url, page_config.get("source", "")):
             continue
         jobs.append(
             JobCandidate(

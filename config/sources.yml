@@ -1,15 +1,22 @@
+pipeline:
+  source_timeout_seconds: 35
+
 search:
-  max_results: 35
+  max_results: 6
   concurrency: 6
   region: br-pt
-  timelimit: y
+  timelimit: m
+  backend: yandex
+  timeout: 5
 
 pages:
   concurrency: 6
 
 enrichment:
-  concurrency: 10
-  limit: 400
+  concurrency: 12
+  limit: 100
+  timeout_seconds: 10
+  stage_timeout_seconds: 90
 
 ats:
   concurrency: 4
@@ -29,42 +36,26 @@ rendered_pages:
       source: Infojobs
       company: Não informada
       url: https://www.infojobs.com.br/empregos.aspx?palabra=est%C3%A1gio%202027
-      item_selector: a[href]
-      limit: 100
+      item_selector: a[href*="vaga-de-"]
+      limit: 40
     - name: Catho — estágio 2027
       source: Catho
       company: Não informada
       url: https://www.catho.com.br/vagas/estagio-2027/
-      item_selector: a[href]
-      limit: 100
+      item_selector: a[href*="/vaga/"], a[href*="/vagas/"]
+      limit: 40
     - name: Solides — estágio 2027
       source: Solides
       company: Não informada
       url: https://vagas.solides.com.br/vagas?search=est%C3%A1gio%202027
-      item_selector: a[href]
-      limit: 100
+      item_selector: a[href*="/vaga/"], a[href*="/vagas/"]
+      limit: 40
 
 social:
   concurrency: 6
-  bluesky:
-    - query: '"programa de estágio" 2027'
-      limit: 100
-    - query: '"estágio 2027" OR "jovens talentos 2027"'
-      limit: 100
-    - query: '"internship 2027" Brazil remote'
-      limit: 100
-  reddit:
-    - query: '"programa de estágio" 2027 OR "estágio 2027"'
-      limit: 100
-    - subreddit: brdev
-      query: 'estágio 2027 OR programa de estágio OR jovens talentos'
-      limit: 100
-    - subreddit: brasil
-      query: '"programa de estágio" 2027 OR "jovens talentos"'
-      limit: 100
-    - subreddit: cscareerquestions
-      query: 'internship 2027 Brazil remote'
-      limit: 100
+  # Reddit e Bluesky permanecem suportados, mas ficam desligados enquanto retornarem 403.
+  bluesky: []
+  reddit: []
   hackernews:
     - query: 'internship 2027 Brazil remote'
       limit: 50
@@ -73,13 +64,13 @@ social:
   mastodon:
     - instance: https://mastodon.social
       tag: estagio
-      limit: 40
+      limit: 25
     - instance: https://mastodon.social
       tag: vagas
-      limit: 40
+      limit: 25
     - instance: https://fosstodon.org
       tag: internship
-      limit: 40
+      limit: 25
   telegram:
     - channel: vagasremotas
       query: estágio 2027
@@ -194,47 +185,56 @@ public_pages:
     source: Gupy
     company: Não informada
     url: https://portal.gupy.io/job-search/term=est%C3%A1gio%202027
-    limit: 120
+    link_selector: a[href*="/job-results/"], a[href*="/jobs/"]
+    limit: 40
   - name: Gupy — programa de estágio
     source: Gupy
     company: Não informada
     url: https://portal.gupy.io/job-search/term=programa%20de%20est%C3%A1gio
-    limit: 120
+    link_selector: a[href*="/job-results/"], a[href*="/jobs/"]
+    limit: 40
   - name: Vagas.com — estágio
     source: Vagas.com
     company: Não informada
     url: https://www.vagas.com.br/vagas-de-estagio
-    limit: 120
+    link_selector: a[href*="/vagas/v"]
+    limit: 40
   - name: CIEE — estudantes
     source: CIEE
     company: Não informada
     url: https://portal.ciee.org.br/estudantes/
-    limit: 100
+    link_selector: a[href*="/vaga/"], a[href*="/vagas/"]
+    limit: 40
   - name: Nube — vagas
     source: Nube
     company: Não informada
     url: https://www.nube.com.br/estudantes/vagas
-    limit: 100
+    link_selector: a[href*="/vagas/"]
+    limit: 40
   - name: Cia de Estágios — vagas
     source: Cia de Estágios
     company: Não informada
     url: https://www.ciadeestagios.com.br/vagas/
-    limit: 100
+    link_selector: a[href*="/vaga/"], a[href*="/vagas/"]
+    limit: 40
   - name: Cia de Talentos — vagas
     source: Cia de Talentos
     company: Não informada
     url: https://www.ciadetalentos.com.br/pt/vagas/
-    limit: 100
+    link_selector: a[href*="/vaga/"], a[href*="/vagas/"]
+    limit: 40
   - name: Eureca — oportunidades
     source: Eureca
     company: Não informada
     url: https://eureca.me/
-    limit: 80
+    link_selector: a[href*="/oportunidade/"], a[href*="/vagas/"]
+    limit: 40
   - name: 99jobs — oportunidades
     source: 99jobs
     company: Não informada
     url: https://www.99jobs.com/
-    limit: 80
+    link_selector: a[href*="/jobs/"], a[href*="/vagas/"]
+    limit: 40
 
 # Páginas específicas usam seletores CSS por empresa. A lista começa vazia até
 # as empresas-alvo serem definidas, evitando scrapers genéricos que geram ruído.

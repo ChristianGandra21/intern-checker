@@ -20,11 +20,11 @@ LinkedIn, X e portais com proteção contra automação são consultados por bus
 ## Recursos implementados
 
 - Coleta assíncrona e isolada por fonte: uma falha não interrompe o ciclo.
-- Ingestão ampla por padrão: coleta e armazena candidatos antes de filtrar relevância.
+- Ingestão ampla com auditoria: candidatos descartados pelo pré-filtro não são enriquecidos, mas são armazenados como ocultos.
 - Planilha comunitária pública como fonte-base prioritária.
 - Busca indireta em LinkedIn, X, Gupy, Vagas.com e Indeed.
 - RSS, Google Alerts via IMAP, redes sociais públicas e páginas de carreira configuráveis.
-- Ingestão social sem chave para Bluesky, Reddit, Hacker News/Algolia, Mastodon e páginas públicas do Telegram.
+- Ingestão social sem chave com filtro de contratação/estágio/empresa/Brasil; Reddit e Bluesky ficam desligados por padrão enquanto responderem `403`.
 - Scraping renderizado opcional via Playwright para portais que dependem de JavaScript.
 - Score de 0–100 com motivos visíveis e penalidades de senioridade/área.
 - Deduplicação global por ID de ATS, URLs oficiais, empresa/programa/ciclo e similaridade protegida.
@@ -42,7 +42,8 @@ LinkedIn, X e portais com proteção contra automação são consultados por bus
 - Validação de qualidade que separa anúncios aplicáveis, leads e ruído antes da exibição.
 - Quarentena de vagas antigas, encerradas, genéricas ou sem evidência de estágio.
 - Deduplicação persistente entre ciclos e verificação diária dos links prioritários.
-- Radar amplo com fila de alta confiança e watchlist para vagas com ano ou localização ainda desconhecidos.
+- Política `radar-v2`: tecnologia ampla e programas gerais, presencial/híbrido em São Paulo e remoto explicitamente brasileiro; a watchlist aceita detalhes/ciclo pendentes, mas exige localização compatível.
+- Ciclo de ingestão por execução e lote, com totais de persistidos, fortes, análise, rejeitados, ocultos, resolvidos, falhas e duração por fonte.
 - Download sob demanda em CSV e XLSX, além dos arquivos de cada ciclo.
 - Resumo diário via Gmail SMTP e, opcionalmente, Telegram.
 - GitHub Actions diário às 08:15 no horário de São Paulo.
@@ -61,7 +62,7 @@ Abra `http://localhost:3000`. Sem variáveis de banco, a interface inicia em mod
 ## Configurar o Supabase
 
 1. Crie um projeto gratuito no Supabase.
-2. Execute, em ordem, as migrations `001` a [010_user_workspace.sql](supabase/migrations/010_user_workspace.sql) no SQL Editor.
+2. Execute, em ordem, as migrations `001` a [012_ingestion_quality.sql](supabase/migrations/012_ingestion_quality.sql) no SQL Editor.
 3. Copie `.env.example` para `.env.local` e preencha:
 
 ```dotenv
@@ -71,7 +72,7 @@ NEXT_PUBLIC_SUPABASE_URL=https://seu-projeto.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sua-publishable-key
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 INGEST_API_KEY=uma-chave-longa-e-aleatoria
-LOCAL_SCRAPING_ENABLED=false
+SCRAPING_EXECUTION_MODE=disabled
 SCRAPING_ADMIN_EMAILS=voce@email.com
 ```
 
@@ -122,7 +123,7 @@ curl --fail-with-body -X POST "http://localhost:3000/api/jobs/revalidate" \
   -d '{"check_urls":true,"url_limit":30}'
 ```
 
-A rotina não apaga registros. Ela classifica `strong`, `watchlist` e `hidden`, separa `job`, `lead` e `noise`, testa links prioritários, escolhe um principal por grupo e aponta todas as duplicatas. Ano ou localização ausentes entram na watchlist; incompatibilidades explícitas continuam ocultas. O dry-run inclui transições, amostras dos grupos e vagas ocultadas pelas preferências. `403`, `429`, timeout ou bloqueio de robô não eliminam uma vaga.
+A rotina não apaga registros. Ela classifica `strong`, `watchlist` e `hidden`, separa `job`, `lead` e `noise`, testa links prioritários, escolhe um principal por grupo e aponta todas as duplicatas. Ano/detalhes ausentes podem entrar na watchlist, mas localização fora de São Paulo/Brasil ou remota sem Brasil explícito fica oculta. O dry-run inclui transições, amostras visíveis e os ATS descobertos que serão desativados por não terem vaga elegível. `403`, `429`, timeout ou bloqueio de robô não eliminam uma vaga.
 
 Confira o schema em `http://localhost:3000/api/health/schema`. Com migrations ausentes, a home usa uma leitura legada em vez de retornar erro 500; ingestão v2 e revalidação respondem 409 com a migration necessária.
 
@@ -143,17 +144,34 @@ O comando explícito equivalente é:
 intern-checker run --config config/sources.yml --output exports
 ```
 
-### Botão de coleta local
+### Botão de coleta sob demanda
 
-Depois de instalar o coletor na `.venv`, habilite a execução local no ambiente do Next.js:
+O botão administrativo executa coleta, ingestão e revalidação sem enviar e-mail ou Telegram. Há apenas uma execução simultânea, intervalo mínimo de 30 minutos e recuperação automática de execuções abandonadas.
+
+Para executar na mesma máquina do dashboard, instale o coletor na `.venv` e configure:
 
 ```dotenv
-LOCAL_SCRAPING_ENABLED=true
+SCRAPING_EXECUTION_MODE=local
 SCRAPING_ADMIN_EMAILS=seu-email-de-login@example.com
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 ```
 
-Reinicie `npm run dev`. A opção **Coleta** aparecerá na sidebar somente para os e-mails listados. O botão executa coleta e revalidação em segundo plano, aceita apenas uma execução por vez e exige 30 minutos entre disparos. Logs privados ficam em `var/runs/`. Esse recurso foi projetado para execução na mesma máquina do coletor e permanece desabilitado em Vercel/serverless.
+Reinicie `npm run dev`. A opção **Coleta** aparecerá na sidebar somente para os e-mails listados. O processo continua em segundo plano e os logs privados ficam em `var/runs/`.
+
+Para executar a partir de Vercel ou outro ambiente serverless, use o GitHub Actions:
+
+```dotenv
+SCRAPING_EXECUTION_MODE=github
+SCRAPING_ADMIN_EMAILS=seu-email-de-login@example.com
+GITHUB_ACTIONS_TOKEN=github_pat_...
+GITHUB_REPOSITORY=owner/repository
+GITHUB_WORKFLOW_FILE=daily-search.yml
+GITHUB_WORKFLOW_REF=main
+```
+
+Crie um token fine-grained restrito a esse repositório, com permissão de leitura dos metadados e escrita em **Actions**, e salve-o apenas no ambiente do backend. Nos secrets do GitHub Actions, mantenha `JOBS_API_URL` terminando em `/api/jobs` e `INGEST_API_KEY` igual à chave do backend; eles também autenticam os callbacks de status. A tela exibe o executor e oferece um link direto para os logs remotos.
+
+`LOCAL_SCRAPING_ENABLED=true` continua habilitando o modo local temporariamente quando `SCRAPING_EXECUTION_MODE` não estiver definido, mas deve ser substituído pela configuração nova.
 
 O coletor carrega automaticamente `.env.local` e `.env` quando esses arquivos existem. Sem
 `JOBS_API_URL` e `INGEST_API_KEY`, ele funciona em modo local e gera apenas CSV/XLSX. Para enviar
@@ -164,9 +182,9 @@ JOBS_API_URL=http://localhost:3000/api/jobs
 INGEST_API_KEY=a-mesma-chave-do-dashboard
 ```
 
-As consultas, feeds, planilha comunitária, redes sociais e páginas de carreira ficam em [config/sources.yml](config/sources.yml). Por padrão o coletor ingere tudo que encontrar, normaliza, pontua e deduplica. Use `--min-score` apenas quando quiser forçar um filtro manual na ingestão.
+As consultas, limites, timeouts, feeds, planilha comunitária, redes sociais e seletores de páginas ficam em [config/sources.yml](config/sources.yml). O pré-filtro evita enriquecer navegação e posts fracos, mas preserva esses registros para auditoria no backend. Use `--min-score` apenas quando quiser forçar um filtro manual na ingestão.
 
-A pipeline prioriza APIs públicas de Greenhouse, Lever e Ashby, seguida pela aba do mês atual da planilha comunitária e por notícias. Snippets, notícias e posts passam por resolução de redirecionamento e extração JSON-LD. O backend guarda a evidência bruta, reutiliza o cache Groq e liga todas as fontes à vaga canônica.
+A pipeline abre um `ingestion_run`, envia todos os lotes com o mesmo `run_id` e só então finaliza os totais agregados. A API devolve a decisão `radar-v2` por URL; essa decisão do backend também controla os CSV/XLSX e alertas, evitando divergência com o dashboard. O resumo final mostra rendimento, duração por fonte e motivos predominantes de descarte.
 
 Para habilitar scraping renderizado em portais que dependem de JavaScript:
 

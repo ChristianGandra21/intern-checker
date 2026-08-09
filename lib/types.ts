@@ -106,6 +106,7 @@ export interface TrackedApplication {
 }
 
 export type ScrapeRunStatus = "queued" | "running" | "succeeded" | "failed";
+export type ScrapeRunRunner = "local" | "github";
 
 export interface ScrapeRun {
   id: string;
@@ -117,6 +118,11 @@ export interface ScrapeRun {
   exit_code: number | null;
   summary: string;
   error_message: string | null;
+  runner: ScrapeRunRunner;
+  external_run_id: string | null;
+  external_url: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ProfileMatch {

@@ -30,7 +30,7 @@ function run(command, args) {
 
 try {
   await update({ status: "running", started_at: new Date().toISOString(), error_message: null });
-  await run(`${projectRoot}/.venv/bin/intern-checker`, ["run", "--config", "config/sources.yml", "--output", "exports"]);
+  await run(`${projectRoot}/.venv/bin/intern-checker`, ["run", "--config", "config/sources.yml", "--output", "exports", "--no-notify"]);
   const response = await fetch(`${apiBase}/api/jobs/revalidate`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-ingest-key": process.env.INGEST_API_KEY || "" },

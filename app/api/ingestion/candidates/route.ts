@@ -6,6 +6,7 @@ import { classifyDisplay, type DisplayTier } from "@/lib/job-display";
 import { analyzeJobBatch, JOB_AI_MODEL, JOB_PROMPT_VERSION, type JobAiResult } from "@/lib/job-ai";
 import { validateJob, type JobValidationInput } from "@/lib/job-validation";
 import { getSupabaseAdmin, hasDatabaseConfig } from "@/lib/supabase";
+import { nullableTimestamp, timestampOrNow } from "@/lib/timestamps";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -32,7 +33,7 @@ function verification(tier: DisplayTier, hasOfficial: boolean) {
 export async function POST(request: NextRequest) {
   if (!validIngestKey(request.headers.get("x-ingest-key"))) return NextResponse.json({ error: "Chave de ingestão inválida." }, { status: 401 });
   if (!hasDatabaseConfig()) return NextResponse.json({ error: "Banco não configurado." }, { status: 503 });
-  const body = await request.json().catch(() => null) as { candidates?: unknown[]; run?: Record<string, unknown> } | null;
+  const body = await request.json().catch(() => null) as { candidates?: unknown[]; run_id?: unknown; run?: Record<string, unknown> } | null;
   if (!body?.candidates || !Array.isArray(body.candidates) || body.candidates.length > 40) return NextResponse.json({ error: "Envie até 40 candidates." }, { status: 400 });
   const candidates = body.candidates.filter((value): value is Record<string, unknown> => Boolean(value && typeof value === "object"));
   const db = getSupabaseAdmin();
@@ -44,22 +45,36 @@ export async function POST(request: NextRequest) {
   if (dedupSchema.error) return NextResponse.json({ error: "Deduplicação global indisponível. Execute a migration 006 no Supabase.", detail: dedupSchema.error.message }, { status: 409 });
   const radarSchema = await db.from("jobs").select("display_tier,target_fit,location_fit").limit(1);
   if (radarSchema.error) return NextResponse.json({ error: "Radar amplo indisponível. Execute a migration 007 no Supabase.", detail: radarSchema.error.message }, { status: 409 });
-  let runId: string | null = null;
-  if (body.run) {
+  let runId = typeof body.run_id === "string" ? body.run_id : null;
+  const legacyRun = !runId && Boolean(body.run);
+  if (runId) {
+    const run = await db.from("ingestion_runs").select("id,status").eq("id", runId).maybeSingle();
+    if (run.error) return NextResponse.json({ error: run.error.message, stage: "ingestion_run" }, { status: 400 });
+    if (!run.data) return NextResponse.json({ error: "Execução de ingestão não encontrada." }, { status: 404 });
+    if (run.data.status !== "running") return NextResponse.json({ error: `Execução não aceita lotes no estado ${run.data.status}.` }, { status: 409 });
+  } else if (body.run) {
     const run = await db.from("ingestion_runs").insert({ status: "running", found_count: body.run.found_count || candidates.length, source_summary: body.run.source_summary || {} }).select("id").single();
     runId = run.data?.id || null;
   }
 
   const preparedInput = candidates.map((item) => {
+    const rawPayload = item.raw_payload && typeof item.raw_payload === "object"
+      ? { ...item.raw_payload as Record<string, unknown> }
+      : {};
+    const invalidDates = ["published_at", "application_deadline", "discovered_at"].filter((field) =>
+      item[field] != null && nullableTimestamp(item[field]) === null,
+    );
+    if (invalidDates.length) rawPayload._invalid_timestamp_fields = invalidDates;
     const input = {
       title: String(item.title || ""), company: String(item.company || "Não informada"), description: String(item.description || ""),
       location: String(item.location || ""), work_mode: String(item.work_mode || "unknown"), source: String(item.source || "Unknown"),
-      source_url: String(item.source_url || ""), published_at: typeof item.published_at === "string" ? item.published_at : null,
-      application_deadline: typeof item.application_deadline === "string" ? item.application_deadline : null,
+      source_url: String(item.source_url || ""), published_at: nullableTimestamp(item.published_at),
+      application_deadline: nullableTimestamp(item.application_deadline),
       source_type: String(item.source_type || "discovery"),
       official_url: typeof item.official_url === "string" ? item.official_url : null,
       application_url: typeof item.application_url === "string" ? item.application_url : null,
-      raw_payload: item.raw_payload && typeof item.raw_payload === "object" ? item.raw_payload as Record<string, unknown> : {},
+      external_id: typeof item.external_id === "string" ? item.external_id : null,
+      raw_payload: rawPayload,
     } satisfies JobValidationInput;
     const contentHash = hash(JSON.stringify([input.title, input.company, input.description, input.location, input.source_url, input.application_deadline]));
     const externalId = typeof item.external_id === "string" ? item.external_id : null;
@@ -68,13 +83,22 @@ export async function POST(request: NextRequest) {
   }).filter(({ input }) => input.title.length >= 2 && /^https?:/.test(input.source_url));
   const prepared = [...new Map(preparedInput.map((item) => [item.dedupKey, item])).values()];
 
-  const discoveries = new Map<string, ReturnType<typeof discoveredAts>>();
+  const discoveries = new Map<string, { found: NonNullable<ReturnType<typeof discoveredAts>>; qualified: boolean }>();
   for (const candidate of prepared) {
     const found = discoveredAts(String(candidate.item.official_url || candidate.input.source_url));
-    if (found) discoveries.set(`${found.adapter}:${found.identifier}`, found);
+    if (found) {
+      const key = `${found.adapter}:${found.identifier}`;
+      const qualified = candidate.base.candidate_kind === "job"
+        && ["tech", "general"].includes(candidate.base.area_fit)
+        && ["confirmed", "probable"].includes(candidate.base.location_fit)
+        && candidate.base.target_fit !== "incompatible"
+        && candidate.base.display_tier !== "hidden";
+      const previous = discoveries.get(key);
+      discoveries.set(key, { found, qualified: Boolean(previous?.qualified || qualified) });
+    }
   }
-  for (const found of discoveries.values()) {
-    if (!found) continue;
+  for (const { found, qualified } of discoveries.values()) {
+    if (!qualified) continue;
     const current = await db.from("source_registry").select("id,successful_probes").eq("adapter", found.adapter).eq("identifier", found.identifier).maybeSingle();
     if (current.data) {
       const probes = current.data.successful_probes + 1;
@@ -120,7 +144,7 @@ export async function POST(request: NextRequest) {
   const rawRows = [...new Map(prepared.map(({ item, input, contentHash, dedupKey, externalId }) => [dedupKey, {
     run_id: runId,
     source: input.source, source_type: String(item.source_type || "discovery"), external_id: externalId,
-    source_url: input.source_url, title: input.title, snippet: input.description, raw_payload: item.raw_payload || {},
+    source_url: input.source_url, title: input.title, snippet: input.description, raw_payload: input.raw_payload || {},
     content_hash: contentHash, dedup_key: dedupKey, state: item.official_url ? "resolved" : "discovered",
     official_url: item.official_url || null, application_url: item.application_url || null,
   }])).values()];
@@ -140,13 +164,17 @@ export async function POST(request: NextRequest) {
     const displayInput = { ...input, title, company };
     const display = classifyDisplay(displayInput, { ...base, area_fit: areaFit }, ai);
     const identity = buildDedupIdentity({ ...input, title, company, external_id: externalId });
+    const persistedRawPayload = { ...input.raw_payload };
+    if (ai?.application_deadline && nullableTimestamp(ai.application_deadline) === null) {
+      persistedRawPayload._invalid_ai_application_deadline = ai.application_deadline;
+    }
     return {
       title, company, description: input.description, location: input.location,
       work_mode: ai && ai.work_mode !== "unknown" ? ai.work_mode : input.work_mode, source: input.source, source_url: official || input.source_url,
       official_url: input.official_url, application_url: input.application_url, external_id: externalId,
-      published_at: input.published_at, discovered_at: item.discovered_at || new Date().toISOString(), score: Number(item.score || 0),
+      published_at: input.published_at, discovered_at: timestampOrNow(item.discovered_at), score: Number(item.score || 0),
       score_reasons: item.score_reasons || [], match_location: Boolean(item.match_location), match_start: Boolean(item.match_start),
-      fingerprint: String(item.fingerprint || hash(`${input.title}|${input.company}|${input.location}`)), raw_payload: item.raw_payload || {},
+      fingerprint: String(item.fingerprint || hash(`${input.title}|${input.company}|${input.location}`)), raw_payload: persistedRawPayload,
       ...base, content_hash: contentHash,
       match_area: areaFit === "tech", area_fit: areaFit, area_reasons: areaReasons,
       primary_area: base.primary_area, area_tags: base.area_tags,
@@ -157,7 +185,8 @@ export async function POST(request: NextRequest) {
       ai_error: ai ? null : aiErrorByHash.get(contentHash) || attemptByHash.get(contentHash)?.ai_error || null,
       ai_last_attempt_at: attemptedHashes.has(contentHash) ? new Date().toISOString() : attemptByHash.get(contentHash)?.ai_last_attempt_at || null,
       ai_result: ai || {},
-      application_deadline: ai?.application_deadline || input.application_deadline || null, verification_level: verification(display.display_tier, Boolean(official)), last_seen_at: new Date().toISOString(), missing_runs: 0,
+      application_deadline: nullableTimestamp(ai?.application_deadline) || input.application_deadline,
+      verification_level: verification(display.display_tier, Boolean(official)), last_seen_at: new Date().toISOString(), missing_runs: 0,
       _raw_id: rawByKey.get(dedupKey),
       _source_url: input.source_url,
       _identity_input: { ...input, title, company, external_id: externalId },
@@ -228,9 +257,15 @@ export async function POST(request: NextRequest) {
     const existing = existingByGroup.get(job.dedup_group_key);
     return !existing || trustRank(job) >= trustRank(existing);
   });
-  const persistedRows = jobsToPersist.map((job) => Object.fromEntries(
+  const uniqueJobsToPersist = [...jobsToPersist.reduce((byFingerprint, job) => {
+    const current = byFingerprint.get(job.fingerprint);
+    if (!current || rank(job) > rank(current)) byFingerprint.set(job.fingerprint, job);
+    return byFingerprint;
+  }, new Map<string, (typeof jobs)[number]>()).values()];
+  const persistedRows = uniqueJobsToPersist.map((job) => Object.fromEntries(
     Object.entries(job).filter(([key]) => !["_raw_id", "_source_url", "_identity_input", "_canonical_group"].includes(key)),
   ));
+  const persistedFingerprints = new Set(uniqueJobsToPersist.map((job) => job.fingerprint));
   const persisted = persistedRows.length
     ? await db.from("jobs").upsert(persistedRows, { onConflict: "fingerprint" }).select("id,fingerprint")
     : { data: [], error: null };
@@ -252,7 +287,7 @@ export async function POST(request: NextRequest) {
     const sourceResult = await db.from("job_sources").upsert(sources, { onConflict: "job_id,source_url" });
     if (sourceResult.error) return NextResponse.json({ error: sourceResult.error.message, stage: "job_sources" }, { status: 400 });
   }
-  if (runId) {
+  if (runId && legacyRun) {
     const summary = (body.run?.source_summary || {}) as Record<string, unknown>;
     const sourceRows = Object.entries(summary).map(([source, count]) => ({ ingestion_run_id: runId, source, adapter: source.toLowerCase().replaceAll(" ", "_"), status: "success", discovered_count: Number(count) || 0, resolved_count: prepared.filter((item) => item.input.source === source && item.item.official_url).length, accepted_count: jobs.filter((job) => job.source === source && job.display_tier === "strong").length, finished_at: new Date().toISOString() }));
     if (sourceRows.length) await db.from("source_runs").insert(sourceRows);
@@ -275,5 +310,35 @@ export async function POST(request: NextRequest) {
   }
   const newStrongGroups = new Set(canonicalJobs.filter((job) => job.display_tier === "strong" && !existingCanonicalGroups.has(job.dedup_group_key)).map((job) => job.dedup_group_key));
   const newStrongSourceUrls = jobs.filter((job) => job.display_tier === "strong" && newStrongGroups.has(job._canonical_group)).map((job) => job._source_url);
-  return NextResponse.json({ received: candidates.length, persisted: canonicalJobs.length, cachedAi: eligibleForAi.length - missing.length, aiWarning, newStrongSourceUrls: [...new Set(newStrongSourceUrls)] }, { status: 201 });
+  const outcomes = jobs.map((job) => {
+    const rawPayload = job.raw_payload as Record<string, unknown>;
+    const canonicalFingerprint = fingerprintByGroup.get(job._canonical_group) || job.fingerprint;
+    const resolutionFailed = Boolean(rawPayload._enrichment_timeout)
+      || [400, 401, 403, 404, 410, 429].includes(Number(rawPayload.official_http_status ?? rawPayload.http_status));
+    const analysisFailed = failedHashes.has(job.content_hash) || retryBlocked.has(job.content_hash);
+    return {
+      source_url: job._source_url,
+      canonical_fingerprint: canonicalFingerprint,
+      persisted: persistedFingerprints.has(canonicalFingerprint),
+      candidate_kind: job.candidate_kind,
+      validation_status: job.validation_status,
+      display_tier: job.display_tier,
+      display_reasons: job.display_reasons,
+      resolution_failed: resolutionFailed,
+      analysis_failed: analysisFailed,
+      failed: resolutionFailed || analysisFailed,
+    };
+  });
+  return NextResponse.json({
+    received: candidates.length,
+    persisted: persistedRows.length,
+    accepted: outcomes.filter((item) => item.display_tier === "strong").length,
+    review: outcomes.filter((item) => item.display_tier === "watchlist").length,
+    rejected: outcomes.filter((item) => item.validation_status === "rejected").length,
+    hidden: outcomes.filter((item) => item.display_tier === "hidden").length,
+    failures: outcomes.filter((item) => item.failed).length,
+    resolved: prepared.filter((item) => item.item.official_url || item.item.application_url).length,
+    cachedAi: eligibleForAi.length - missing.length, aiWarning, outcomes,
+    newStrongSourceUrls: [...new Set(newStrongSourceUrls)],
+  }, { status: 201 });
 }

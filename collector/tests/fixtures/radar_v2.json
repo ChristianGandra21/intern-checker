@@ -1,0 +1,10 @@
+[
+  {"name":"aggregate count","expected":"hidden","title":"155 vagas de estágio em São Paulo","source_url":"https://example.com/vagas","description":"Lista de vagas de tecnologia 2027","location":"São Paulo"},
+  {"name":"open to work","expected":"hidden","title":"#OpenToWork — busco estágio em dados","description":"Estou procurando estágio 2027 em São Paulo","source_type":"social","location":"São Paulo"},
+  {"name":"educational article","expected":"hidden","title":"Como conseguir estágio em tecnologia em 2027","description":"Dicas para estudantes em São Paulo"},
+  {"name":"recruiter profile","expected":"hidden","title":"Early careers recruiter","description":"Recrutadora para programas de internship 2027 em São Paulo"},
+  {"name":"foreign remote","expected":"hidden","title":"Software Engineering Intern 2027","description":"Apply for our internship","location":"Toronto, Canada","work_mode":"remote"},
+  {"name":"general SP program","expected":"strong","title":"Programa de Estágio 2027","description":"Inscrições abertas para trilhas gerais","location":"São Paulo, SP","area_fit":"general"},
+  {"name":"individual tech internship","expected":"strong","title":"Estágio em Segurança da Informação 2027.1","description":"Candidate-se para a vaga","location":"Barueri, SP"},
+  {"name":"qualified social lead","expected":"watchlist","title":"Inscrições abertas: estágio em tecnologia 2027","description":"A Acme está contratando estudantes para São Paulo. Candidate-se.","location":"São Paulo, SP","source":"Mastodon","source_type":"social"}
+]

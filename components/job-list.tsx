@@ -20,12 +20,13 @@ function Score({ value }: { value: number }) {
 
 function Verification({ job }: { job: Job }) {
   if (job.display_tier === "watchlist") {
-    return <span className="eyebrow inline-flex items-center gap-1.5 bg-[#fff0bf] px-2 py-1 text-[10px] text-[var(--ink)]"><span className="size-1.5 animate-pulse rounded-full bg-[var(--amber)]" />Em verificação</span>;
+    const lead = job.candidate_kind === "lead";
+    return <span className={`eyebrow inline-flex items-center gap-1.5 px-2 py-1 text-[10px] ${lead ? "bg-[#e8edf8] text-[#29466f]" : "bg-[#fff0bf] text-[var(--ink)]"}`}><span className={`size-1.5 rounded-full ${lead ? "bg-[#5172a5]" : "animate-pulse bg-[var(--amber)]"}`} />{lead ? "Lead a confirmar" : "Vaga em análise"}</span>;
   }
   const value = job.verification_level;
   if (!value || !["confirmed", "probable"].includes(value)) return null;
   const unconfirmedNews = value === "probable" && ["RSS", "Google Alerts"].includes(job.source) && !job.official_url;
-  const label = value === "confirmed" ? "Confirmada" : unconfirmedNews ? "Notícia · link não confirmado" : "Provável";
+  const label = value === "confirmed" ? "Vaga confirmada" : unconfirmedNews ? "Notícia · link não confirmado" : "Vaga confirmada";
   return <span className={`eyebrow inline-block px-2 py-1 text-[10px] ${value === "confirmed" ? "bg-[var(--green)] text-white" : "bg-[var(--acid)] text-[var(--ink)]"}`}>{label}</span>;
 }
 

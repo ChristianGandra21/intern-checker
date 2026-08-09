@@ -2,7 +2,7 @@ import type { JobValidationInput } from "./job-validation";
 
 export type EvidenceFit = "confirmed" | "probable" | "unknown" | "incompatible";
 export type DisplayTier = "strong" | "watchlist" | "hidden";
-export const CLASSIFICATION_VERSION = "radar-v1";
+export const CLASSIFICATION_VERSION = "radar-v2";
 
 export interface DisplayFacts {
   area_fit: "tech" | "general" | "non_tech" | "ambiguous";
@@ -32,6 +32,11 @@ export interface DisplayDecision {
 
 const plain = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 const internshipSignal = (value: string) => /\b(estagio|estagiari[oa]s?|internship|intern|programa (?:de )?estagio|summer intern)\b/.test(plain(value));
+const hiringSignal = (value: string) => /\b(inscricoes? abertas?|candidate-se|candidatura|apply|aplique|hiring|contratando|processo seletivo|vaga de estagio|oportunidade de estagio)\b/.test(plain(value));
+const brazilSignal = (value: string) => /\b(brasil|brazil|br)\b/.test(plain(value));
+const saoPauloSignal = (value: string) => /\b(sao paulo|grande sao paulo|abc paulista|osasco|barueri|campinas|guarulhos|jundiai|santo andre|sao bernardo|sao caetano|cotia|jandira|sorocaba|sp,? br|sp - brasil)\b/.test(plain(value));
+const foreignSignal = (value: string) => /\b(canada|toronto|vancouver|united states|usa|estados unidos|new york|miami|california|seattle|europe|europa|united kingdom|uk|reino unido|london|londres|mexico|argentina|chile|colombia|india|madras|bangalore|singapore|australia|germany|alemanha|berlin|france|franca|spain|espanha|portugal|ireland|irlanda|netherlands|holanda|poland|polonia|japan|japao|china|israel|dubai|uae)\b/.test(plain(value));
+const outsideSaoPauloSignal = (value: string) => /\b(rio de janeiro|rj|minas gerais|belo horizonte|mg|bahia|salvador|ba|parana|curitiba|pr|santa catarina|florianopolis|sc|rio grande do sul|porto alegre|rs|pernambuco|recife|pe|ceara|fortaleza|ce|distrito federal|brasilia|df|goias|goiania)\b/.test(plain(value));
 
 export function detectTargetFit(job: JobValidationInput): EvidenceFit {
   const title = plain(job.title);
@@ -47,18 +52,28 @@ export function detectTargetFit(job: JobValidationInput): EvidenceFit {
 }
 
 export function detectLocationFit(job: JobValidationInput): EvidenceFit {
-  if (job.work_mode === "remote") return "confirmed";
   const location = plain(job.location || "");
   const content = plain(`${job.title} ${job.description || ""}`);
-  if (/\b(sao paulo|osasco|barueri|abc paulista|campinas|guarulhos|sp,? br)\b/.test(location)
-  ) return "confirmed";
-  if (/\b(remoto|remote|home office)\b/.test(location)) return "confirmed";
-  if (!location || /^(br|brasil|brazil|nao informado|unknown)$/.test(location)) return "unknown";
-  const outsideBrazil = /\b(canada|united states|usa|estados unidos|europe|europa|united kingdom|uk|reino unido|mexico|argentina|chile|colombia|india|singapore|australia|germany|alemanha|france|franca|spain|espanha)\b/.test(location);
-  const outsideSaoPaulo = /\b(rio de janeiro|rj|minas gerais|mg|bahia|ba|parana|pr|santa catarina|sc|rio grande do sul|rs|pernambuco|pe|ceara|ce|distrito federal|df)\b/.test(location);
-  if ((job.work_mode === "onsite" || job.work_mode === "hybrid") && (outsideBrazil || outsideSaoPaulo)) return "incompatible";
-  if (/\b(?:local de trabalho|localizacao|modelo remoto|trabalho remoto)[^.!?]{0,50}\b(sao paulo|remoto|remote)\b/.test(content)) return "confirmed";
+  const remote = job.work_mode === "remote" || /\b(remoto|remote|home office)\b/.test(location);
+  const unknownLocation = !location || /^(br|brasil|brazil|nao informado|unknown)$/.test(location);
+  if (foreignSignal(location) || ((unknownLocation || remote) && foreignSignal(content))) return "incompatible";
+  if (remote) {
+    if (brazilSignal(location) || /\b(?:remoto|remote|home office)[^.!?]{0,45}\b(?:brasil|brazil)\b/.test(content)) return "confirmed";
+    return "unknown";
+  }
+  if (saoPauloSignal(location)) return "confirmed";
+  if (outsideSaoPauloSignal(location) || foreignSignal(location) || (unknownLocation && outsideSaoPauloSignal(content))) return "incompatible";
+  if (unknownLocation) return "unknown";
+  if (/\b(?:local de trabalho|localizacao)[^.!?]{0,50}\b(?:sao paulo|osasco|barueri|campinas|guarulhos)\b/.test(content)) return "confirmed";
   return "unknown";
+}
+
+export function hasKnownForeignLocation(job: JobValidationInput) {
+  const location = plain(job.location || "");
+  const content = `${job.title} ${job.description || ""}`;
+  const remote = job.work_mode === "remote" || /\b(remoto|remote|home office)\b/.test(location);
+  const unknownLocation = !location || /^(br|brasil|brazil|nao informado|unknown)$/.test(location);
+  return foreignSignal(location) || ((unknownLocation || remote) && foreignSignal(content));
 }
 
 export function classifyDisplay(
@@ -83,14 +98,22 @@ export function classifyDisplay(
 
   const content = `${job.title} ${job.description || ""}`;
   const hasInternship = internshipSignal(content) || Boolean(ai?.is_internship);
+  const identifiableCompany = Boolean(job.company && !/^(nao informada|não informada|unknown|rss|mastodon|telegram|google news)$/i.test(job.company.trim()));
+  const publishedAt = job.published_at ? Date.parse(job.published_at) : Number.NaN;
+  const recentLead = Number.isFinite(publishedAt) && publishedAt >= Date.now() - 45 * 24 * 60 * 60 * 1000;
+  const qualifiedLead = facts.candidate_kind !== "lead" || (
+    identifiableCompany && hiringSignal(content) && hasInternship && recentLead
+    && ["confirmed", "probable"].includes(target) && ["confirmed", "probable"].includes(location)
+  );
+  if (facts.candidate_kind === "lead" && !qualifiedLead) reasons.push("lead sem todos os sinais mínimos de contratação, empresa, ciclo e Brasil/SP");
   const hardHidden = facts.duplicate_of || !facts.is_active || facts.candidate_kind === "noise"
     || !hasInternship || !["tech", "general"].includes(area)
-    || target === "incompatible" || location === "incompatible";
+    || target === "incompatible" || !["confirmed", "probable"].includes(location) || !qualifiedLead;
   let tier: DisplayTier = "hidden";
   if (!hardHidden) {
     const complete = ["confirmed", "probable"].includes(target) && ["confirmed", "probable"].includes(location);
     const reliable = facts.candidate_kind === "job" ? facts.quality_score >= 55 : facts.quality_score >= 50;
-    tier = complete && reliable ? "strong" : "watchlist";
+    tier = facts.candidate_kind === "lead" ? "watchlist" : complete && reliable ? "strong" : "watchlist";
   }
   if (tier === "strong") reasons.push("ciclo e localização compatíveis");
   if (tier === "watchlist") reasons.push("oportunidade compatível aguardando confirmação");

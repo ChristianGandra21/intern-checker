@@ -7,13 +7,17 @@ from urllib.parse import urlsplit
 from .models import JobCandidate
 from .normalize import plain
 
-CLASSIFICATION_VERSION = "radar-v1"
+CLASSIFICATION_VERSION = "radar-v2"
 INTERNSHIP = re.compile(
     r"(?<!\w)(estagio|estagiari[oa]s?|internship|intern|programa (?:de )?estagio|summer intern)(?!\w)"
 )
 GENERIC_TITLE = re.compile(
-    r"^(vagas?|carreiras?|oportunidades?|saiba mais|acesse|clique aqui|ver vagas?|estagio|home|inicio)$"
+    r"^(vagas?|carreiras?|oportunidades?|saiba mais|acesse|clique aqui|ver vagas?|estagio|home|inicio|"
+    r"sao paulo|brasil|home office(?: \(\d+\))?|\d+ vagas?.*)$"
 )
+LISTING_TITLE = re.compile(r"(?<!\w)\d[\d.,]* vagas?|vagas? (?:de|para)|search thousands of jobs|avaliacoes da empresa")
+SEEKER_ARTICLE = re.compile(r"#?opentowork|(?<!\w)(busco|procurando|looking for) .{0,35}(estagio|internship)|como (conseguir|encontrar)|dicas? para|guia (de|para)|recrutador(?:a|es)?")
+HIRING = re.compile(r"(?<!\w)(inscricoes? abertas?|candidate-se|candidatura|apply|aplique|hiring|contratando|processo seletivo|vaga|oportunidade)(?!\w)")
 NON_JOB_TITLE = re.compile(
     r"(?<!\w)(concurso|vestibular|fies|cursos? gratuito|professor(?:a|es)?|licitacao|premio|"
     r"nomeacao|jovem aprendiz|aprendizagem)(?!\w)"
@@ -36,6 +40,8 @@ def _objectively_hidden(job: JobCandidate) -> bool:
     mixed_program = bool(INTERNSHIP.search(content) and re.search(r"(?<!\w)trainee(?!\w)", title))
     bad_title = bool(
         GENERIC_TITLE.fullmatch(title)
+        or LISTING_TITLE.search(title)
+        or SEEKER_ARTICLE.search(content)
         or NON_JOB_TITLE.search(title)
         or SENIOR_TITLE.search(title)
         or (re.search(r"(?<!\w)trainee(?!\w)", title) and not mixed_program)
@@ -73,22 +79,40 @@ def target_fit(job: JobCandidate) -> str:
 
 
 def location_fit(job: JobCandidate) -> str:
-    if job.work_mode == "remote":
-        return "confirmed"
     location = plain(job.location)
-    if re.search(r"(?<!\w)(sao paulo|osasco|barueri|abc paulista|campinas|guarulhos|sp,? br)(?!\w)", location):
-        return "confirmed"
-    if re.search(r"(?<!\w)(remoto|remote|home office)(?!\w)", location):
-        return "confirmed"
-    if not location or location in {"br", "brasil", "brazil", "nao informado", "unknown"}:
-        return "unknown"
-    outside = re.search(
+    content = plain(f"{job.title} {job.description}")
+    remote = job.work_mode == "remote" or bool(re.search(r"(?<!\w)(remoto|remote|home office)(?!\w)", location))
+    unknown_location = not location or location in {"br", "brasil", "brazil", "nao informado", "unknown"}
+    foreign = re.search(
         r"(?<!\w)(canada|united states|usa|estados unidos|europe|europa|united kingdom|uk|reino unido|"
-        r"mexico|argentina|chile|colombia|india|australia|rio de janeiro|rj|minas gerais|mg|bahia|ba|"
-        r"parana|pr|santa catarina|sc|rio grande do sul|rs|pernambuco|pe|ceara|ce|distrito federal|df)(?!\w)",
-        location,
+        r"mexico|argentina|chile|colombia|india|singapore|australia|germany|france|spain|portugal|"
+        r"ireland|netherlands|poland|japan|china|israel|dubai|uae|toronto|vancouver|new york|miami|"
+        r"california|seattle|london|madras|bangalore|berlin)(?!\w)",
+        f"{location} {content}" if unknown_location or remote else location,
     )
-    return "incompatible" if job.work_mode in {"onsite", "hybrid"} and outside else "unknown"
+    if foreign:
+        return "incompatible"
+    if remote:
+        brazil = re.search(r"(?<!\w)(br|brasil|brazil)(?!\w)", location) or re.search(
+            r"(?<!\w)(remoto|remote|home office)(?!\w).{0,45}(?<!\w)(brasil|brazil)(?!\w)", content
+        )
+        return "confirmed" if brazil else "unknown"
+    if re.search(r"(?<!\w)(sao paulo|osasco|barueri|abc paulista|campinas|guarulhos|jundiai|santo andre|sao bernardo|cotia|sp,? br)(?!\w)", location):
+        return "confirmed"
+    outside_sp = re.search(
+        r"(?<!\w)(rio de janeiro|rj|minas gerais|belo horizonte|mg|bahia|salvador|ba|parana|curitiba|pr|"
+        r"santa catarina|florianopolis|sc|rio grande do sul|porto alegre|rs|pernambuco|recife|pe|ceara|"
+        r"fortaleza|ce|distrito federal|brasilia|df|goias|goiania)(?!\w)", location
+    )
+    if outside_sp:
+        return "incompatible"
+    if unknown_location and re.search(
+        r"(?<!\w)(rio de janeiro|minas gerais|belo horizonte|bahia|salvador|parana|curitiba|"
+        r"santa catarina|florianopolis|rio grande do sul|porto alegre|pernambuco|recife|ceara|"
+        r"fortaleza|distrito federal|brasilia|goias|goiania)(?!\w)", content
+    ):
+        return "incompatible"
+    return "unknown"
 
 
 def classify_visibility(job: JobCandidate) -> JobCandidate:
@@ -105,16 +129,29 @@ def classify_visibility(job: JobCandidate) -> JobCandidate:
         reasons.append("ciclo explicitamente incompatível")
     if location == "incompatible":
         reasons.append("localização explicitamente incompatível")
+    is_lead = job.source_type in {"social", "news"}
+    recent = bool(job.published_at and job.published_at >= datetime.now(UTC) - timedelta(days=45))
+    identifiable_company = plain(job.company) not in {"", "nao informada", "mastodon", "telegram", "rss", "google news"}
+    qualified_lead = not is_lead or bool(
+        recent
+        and identifiable_company
+        and HIRING.search(plain(f"{job.title} {job.description}"))
+        and target in {"confirmed", "probable"}
+        and location in {"confirmed", "probable"}
+    )
+    if is_lead and not qualified_lead:
+        reasons.append("lead sem todos os sinais mínimos de contratação, empresa, ciclo e Brasil/SP")
     compatible = (
         job.area_fit in {"tech", "general"}
         and bool(INTERNSHIP.search(plain(f"{job.title} {job.description}")))
         and target != "incompatible"
-        and location != "incompatible"
+        and location in {"confirmed", "probable"}
         and not _objectively_hidden(job)
+        and qualified_lead
     )
     if not compatible:
         tier = "hidden"
-    elif target in {"confirmed", "probable"} and location in {"confirmed", "probable"} and job.score >= 55:
+    elif not is_lead and target in {"confirmed", "probable"} and location in {"confirmed", "probable"} and job.score >= 55:
         tier = "strong"
         reasons.append("ciclo e localização compatíveis")
     else:

@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  ArchiveX, BriefcaseBusiness, Download, LogIn, LogOut, Menu,
+  ArchiveX, BellRing, BriefcaseBusiness, Download, LogIn, LogOut, Menu,
   Radar, SearchCheck, Trash2, UserRound, X,
 } from "lucide-react";
 import Link from "next/link";
@@ -12,6 +12,7 @@ type ShellUser = { email: string; name: string } | null;
 
 const baseItems = [{ href: "/", label: "Radar", icon: Radar }];
 const privateItems = [
+  { href: "/inbox", label: "Caixa de entrada", icon: BellRing },
   { href: "/applications", label: "Minhas vagas", icon: BriefcaseBusiness },
   { href: "/declined", label: "Dispensadas", icon: ArchiveX },
   { href: "/applications/trash", label: "Lixeira", icon: Trash2 },

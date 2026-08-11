@@ -51,6 +51,22 @@ export interface Job {
   official_url?: string | null;
   application_url?: string | null;
   application_deadline?: string | null;
+  first_seen_at?: string;
+  last_seen_at?: string;
+  content_changed_at?: string | null;
+  salary_min?: number | null;
+  salary_max?: number | null;
+  salary_period?: "hour" | "month" | "year" | null;
+  workload_hours_week?: number | null;
+  benefits?: string[];
+  requirements?: string[];
+  responsibilities?: string[];
+  education_requirements?: string[];
+  extracted_skills?: string[];
+  details_confidence?: Record<string, number>;
+  details_extracted_at?: string | null;
+  manual_display_tier?: DisplayTier | null;
+  manual_candidate_kind?: "job" | "lead" | "noise" | null;
   created_at?: string;
 }
 
@@ -96,14 +112,28 @@ export interface TrackedApplication {
   description: string;
   application_deadline: string | null;
   notes: string;
+  rejection_reason: string;
   priority: number;
+  decision_priority_enabled?: boolean;
+  decision_priority_score?: number | null;
+  decision_priority_criteria?: DecisionPriorityCriteria;
+  company_context?: string;
+  company_culture?: string;
+  company_reviews?: string;
+  application_resume_text?: string;
+  candidate_pitch?: string;
   status: ApplicationStatus;
   application_state: ApplicationState;
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
   application_stages?: ApplicationStage[];
+  application_recommendations?: ApplicationRecommendation[];
+  jobs?: { source: string } | null;
 }
+
+export type DecisionPriorityCriterionKey = "career_alignment" | "learning_growth" | "work_interest" | "compensation_benefits" | "location_flexibility" | "company_culture";
+export type DecisionPriorityCriteria = Partial<Record<DecisionPriorityCriterionKey, number>>;
 
 export type ScrapeRunStatus = "queued" | "running" | "succeeded" | "failed";
 export type ScrapeRunRunner = "local" | "github";
@@ -121,6 +151,96 @@ export interface ScrapeRun {
   runner: ScrapeRunRunner;
   external_run_id: string | null;
   external_url: string | null;
+  ingestion_run_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IngestionRun {
+  id: string;
+  status: "running" | "success" | "failed";
+  started_at: string;
+  finished_at: string | null;
+  found_count: number;
+  persisted_count: number;
+  created_count: number;
+  updated_count: number;
+  duplicate_count: number;
+  strong_count: number;
+  watchlist_count: number;
+  hidden_count: number;
+  rejected_count: number;
+  resolved_count: number;
+  failure_count: number;
+  new_radar_count: number;
+  duration_ms: number | null;
+  source_summary: Record<string, number>;
+  error_message: string | null;
+}
+
+export interface JobModeration {
+  job_id: string;
+  identity_key: string | null;
+  override_display_tier: DisplayTier | null;
+  override_candidate_kind: "job" | "lead" | "noise" | null;
+  corrected_fields: Record<string, unknown>;
+  reason: string;
+  fixture_status: "pending" | "exported" | "ignored";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationPreferences {
+  user_id: string;
+  email_enabled: boolean;
+  immediate_strong: boolean;
+  daily_digest: boolean;
+  deadline_reminders: boolean;
+  deadline_offsets: number[];
+  timezone: string;
+  digest_hour: number;
+}
+
+export interface NotificationEvent {
+  id: string;
+  event_type: "new_strong" | "job_updated" | "daily_digest" | "deadline";
+  job_id: string | null;
+  application_id: string | null;
+  title: string;
+  body: string;
+  payload: Record<string, unknown>;
+  status: "pending" | "preview" | "sent" | "failed" | "dismissed";
+  read_at: string | null;
+  emailed_at: string | null;
+  created_at: string;
+}
+
+export interface SavedSearch {
+  id: string;
+  name: string;
+  filters: Record<string, string | number | boolean>;
+  notify: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApplicationRecommendation {
+  id: string;
+  application_id: string;
+  strengths: string[];
+  gaps: string[];
+  keywords: string[];
+  resume_suggestions: string[];
+  study_topics: string[];
+  interview_questions: string[];
+  next_steps: string[];
+  overall_assessment: string;
+  company_culture_assessment: string[];
+  pitch_strengths: string[];
+  pitch_improvements: string[];
+  analyzed_resume: boolean;
+  analyzed_pitch: boolean;
+  model: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -147,6 +267,11 @@ export interface JobFilters {
   minScore?: number;
   discoveredFrom?: string;
   discoveredTo?: string;
+  deadline?: "open" | "7d" | "30d";
+  salary?: "informed";
+  skill?: string;
+  company?: string;
+  novelty?: "new" | "updated";
   tier?: "radar" | "strong";
   page?: number;
   pageSize?: number;
@@ -163,6 +288,8 @@ export interface DashboardData {
   pageCount: number;
   savedJobIds: string[];
   authenticated: boolean;
+  latestIngestionRun: IngestionRun | null;
+  canReviewIngestion: boolean;
   metrics: {
     newToday: number;
     highMatch: number;

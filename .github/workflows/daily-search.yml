@@ -59,6 +59,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+          SCRAPE_RUN_ID: ${{ inputs.scrape_run_id }}
         run: |
           EXTRA_ARGS=()
           if [ "$MANUAL_RUN" = "true" ]; then EXTRA_ARGS+=(--no-notify); fi
@@ -76,6 +77,19 @@ jobs:
               -H "content-type: application/json" \
               -H "x-ingest-key: $INGEST_API_KEY" \
               -d '{"check_urls":true,"url_limit":30}'
+          fi
+      - name: Processar alertas pessoais
+        if: ${{ always() && steps.collect.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          JOBS_API_URL: ${{ secrets.JOBS_API_URL }}
+          INGEST_API_KEY: ${{ secrets.INGEST_API_KEY }}
+        run: |
+          if [ -n "$JOBS_API_URL" ] && [ -n "$INGEST_API_KEY" ]; then
+            STATUS_ROOT="${JOBS_API_URL%/api/jobs}"
+            curl --fail-with-body --silent --show-error --max-time 60 \
+              -X POST "$STATUS_ROOT/api/notifications/process" \
+              -H "x-ingest-key: $INGEST_API_KEY"
           fi
       - name: Registrar término da execução administrativa
         if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.scrape_run_id != '' }}

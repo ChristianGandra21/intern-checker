@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     const result = await db.from("jobs").select("id,title,company,description,location,work_mode,source_url,official_url,application_url,application_deadline").eq("id", jobId).maybeSingle();
     if (result.error || !result.data) return NextResponse.json({ error: "Vaga não encontrada." }, { status: 404 });
     const job = result.data;
-    payload = { user_id: user.id, job_id: job.id, title: job.title, company: job.company, description: job.description, location: job.location, work_mode: job.work_mode, source_url: job.application_url || job.official_url || job.source_url, application_deadline: job.application_deadline, notes: "", priority: 1, status: "saved", application_state: "not_applied", deleted_at: null };
+    payload = { user_id: user.id, job_id: job.id, title: job.title, company: job.company, description: job.description, location: job.location, work_mode: job.work_mode, source_url: job.application_url || job.official_url || job.source_url, application_deadline: job.application_deadline, notes: "", rejection_reason: "", priority: 1, status: "saved", application_state: "not_applied", deleted_at: null };
   } else {
     const title = cleanText(body.title, 240);
     const company = cleanText(body.company, 200);
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     const deadline = optionalDate(body.application_deadline);
     if (deadline === undefined) return NextResponse.json({ error: "Prazo inválido." }, { status: 400 });
     const mode = workModes.has(body.work_mode as WorkMode) ? body.work_mode as WorkMode : "unknown";
-    payload = { user_id: user.id, job_id: null, title, company, source_url: sourceUrl, location: cleanText(body.location, 240), work_mode: mode, description: cleanText(body.description, 10000), application_deadline: deadline, notes: cleanText(body.notes, 10000), priority: Math.min(3, Math.max(0, Number(body.priority) || 1)), status: "saved", application_state: "not_applied", deleted_at: null };
+    payload = { user_id: user.id, job_id: null, title, company, source_url: sourceUrl, location: cleanText(body.location, 240), work_mode: mode, description: cleanText(body.description, 10000), application_deadline: deadline, notes: cleanText(body.notes, 10000), rejection_reason: "", priority: Math.min(3, Math.max(0, Number(body.priority) || 1)), status: "saved", application_state: "not_applied", deleted_at: null };
   }
 
   const inserted = await db.from("tracked_applications").insert(payload).select("*").single();

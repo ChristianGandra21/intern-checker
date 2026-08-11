@@ -3,12 +3,13 @@ import { requireUser } from "@/lib/auth";
 import { getSupabaseAdmin, hasDatabaseConfig } from "@/lib/supabase";
 import type { TrackedApplication } from "@/lib/types";
 
-const applicationSelect = "*,application_stages(*)";
+const applicationSelect = "*,application_stages(*),application_recommendations(*),jobs(source)";
 
 function normalizeApplication(row: TrackedApplication): TrackedApplication {
   return {
     ...row,
     application_stages: [...(row.application_stages || [])].sort((a, b) => a.position - b.position),
+    application_recommendations: [...(row.application_recommendations || [])].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)),
   };
 }
 

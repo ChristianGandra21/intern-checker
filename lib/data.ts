@@ -1,19 +1,33 @@
 import { getOptionalUser } from "./auth";
+import { isScrapingAdmin } from "./admin";
 import { demoJobs } from "./mock-data";
 import { emptyAreaPreferences, isVisibleForPreferences, preferencesFromProfile } from "./job-preferences";
 import { getSupabaseAdmin, hasDatabaseConfig } from "./supabase";
-import type { DashboardData, Job, JobFilters, UserProfile } from "./types";
+import type { DashboardData, IngestionRun, Job, JobFilters, UserProfile } from "./types";
+
+let lastSuccessfulRadarRows: unknown[] = [];
+
+const transientDatabaseError = (message: string) => /fetch failed|network|econn|etimeout|timed out|socket/i.test(message);
+const retryDelay = (attempt: number) => new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
 
 function applyFilters(jobs: Job[], filters: JobFilters) {
   const query = filters.query?.trim().toLocaleLowerCase("pt-BR");
   return jobs.filter((job) => {
     const haystack = `${job.title} ${job.company} ${job.description}`.toLocaleLowerCase("pt-BR");
-    const includedDate = saoPauloDateKey(job.discovered_at);
+    const includedDate = saoPauloDateKey(job.first_seen_at || job.discovered_at);
+    const changedDate = job.content_changed_at ? saoPauloDateKey(job.content_changed_at) : "";
+    const deadline = job.application_deadline ? Date.parse(job.application_deadline) : 0;
+    const deadlineDays = deadline ? Math.ceil((deadline - Date.now()) / 86_400_000) : null;
     return (!query || haystack.includes(query)) && (!filters.source || job.source === filters.source)
       && (!filters.mode || job.work_mode === filters.mode)
       && (!filters.minScore || job.score >= filters.minScore)
       && (!filters.discoveredFrom || includedDate >= filters.discoveredFrom)
-      && (!filters.discoveredTo || includedDate <= filters.discoveredTo);
+      && (!filters.discoveredTo || includedDate <= filters.discoveredTo)
+      && (!filters.company || job.company.toLocaleLowerCase("pt-BR").includes(filters.company.toLocaleLowerCase("pt-BR")))
+      && (!filters.skill || (job.extracted_skills || []).some((skill) => skill.toLocaleLowerCase("pt-BR").includes(filters.skill!.toLocaleLowerCase("pt-BR"))))
+      && (!filters.salary || Boolean(job.salary_min || job.salary_max))
+      && (!filters.deadline || (deadlineDays !== null && deadlineDays >= 0 && (filters.deadline === "open" || deadlineDays <= Number(filters.deadline.slice(0, -1)))))
+      && (!filters.novelty || (filters.novelty === "new" ? includedDate === saoPauloDateKey(new Date()) : changedDate === saoPauloDateKey(new Date()) && changedDate !== includedDate));
   });
 }
 
@@ -25,7 +39,7 @@ function rankJobs(jobs: Job[]) {
     || (right.profile_score || 0) - (left.profile_score || 0)
     || (right.quality_score || 0) - (left.quality_score || 0)
     || right.score - left.score
-    || Date.parse(right.discovered_at) - Date.parse(left.discovered_at)
+    || Date.parse(right.first_seen_at || right.discovered_at) - Date.parse(left.first_seen_at || left.discovered_at)
     || left.id.localeCompare(right.id));
 }
 
@@ -35,7 +49,14 @@ function saoPauloDateKey(value: string | Date) {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
-function summarize(jobs: Job[], allRadar: Job[], filters: JobFilters, isDemo: boolean, personal: { saved: number | null; active: number | null; jobIds: string[] }) : DashboardData {
+function summarize(
+  jobs: Job[],
+  allRadar: Job[],
+  filters: JobFilters,
+  isDemo: boolean,
+  personal: { saved: number | null; active: number | null; jobIds: string[] },
+  ingestion: { latest: IngestionRun | null; canReview: boolean } = { latest: null, canReview: false },
+) : DashboardData {
   const today = saoPauloDateKey(new Date());
   const pageSize = Math.min(50, Math.max(1, filters.pageSize || 20));
   const pageCount = Math.max(1, Math.ceil(jobs.length / pageSize));
@@ -52,6 +73,8 @@ function summarize(jobs: Job[], allRadar: Job[], filters: JobFilters, isDemo: bo
     pageCount,
     savedJobIds: personal.jobIds,
     authenticated: personal.saved !== null,
+    latestIngestionRun: ingestion.latest,
+    canReviewIngestion: ingestion.canReview,
     tierCounts: {
       radar: allRadar.length,
       strong: allRadar.filter((job) => job.display_tier === "strong").length,
@@ -59,7 +82,7 @@ function summarize(jobs: Job[], allRadar: Job[], filters: JobFilters, isDemo: bo
     },
     sources: [...sourceCounts.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
     metrics: {
-      newToday: allRadar.filter((job) => saoPauloDateKey(job.discovered_at) === today).length,
+      newToday: allRadar.filter((job) => saoPauloDateKey(job.first_seen_at || job.discovered_at) === today).length,
       highMatch: allRadar.filter((job) => job.score >= 80).length,
       saved: personal.saved,
       active: personal.active,
@@ -103,15 +126,48 @@ async function userContext() {
 
 async function radarRows() {
   const db = getSupabaseAdmin();
-  let result = await db.from("jobs").select("*,job_sources(count)")
-    .in("display_tier", ["strong", "watchlist"]).eq("is_active", true).is("duplicate_of", null).limit(5000);
-  if (result.error && /display_tier|target_fit|location_fit/i.test(result.error.message)) {
-    result = await db.from("jobs").select("*,job_sources(count)")
-      .in("verification_level", ["confirmed", "probable"]).in("area_fit", ["tech", "general"])
-      .eq("is_active", true).is("duplicate_of", null).limit(5000);
+  let lastError = "";
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    let result = await db.from("jobs").select("*,job_sources(count)")
+      .in("display_tier", ["strong", "watchlist"]).eq("is_active", true).is("duplicate_of", null).limit(5000);
+    if (result.error && /display_tier|target_fit|location_fit/i.test(result.error.message)) {
+      result = await db.from("jobs").select("*,job_sources(count)")
+        .in("verification_level", ["confirmed", "probable"]).in("area_fit", ["tech", "general"])
+        .eq("is_active", true).is("duplicate_of", null).limit(5000);
+    }
+    if (!result.error) {
+      lastSuccessfulRadarRows = result.data || [];
+      return lastSuccessfulRadarRows;
+    }
+    lastError = result.error.message;
+    if (!transientDatabaseError(lastError)) throw new Error(`Falha ao carregar vagas: ${lastError}`);
+    if (attempt < 2) await retryDelay(attempt);
   }
-  if (result.error) throw new Error(`Falha ao carregar vagas: ${result.error.message}`);
-  return result.data || [];
+  console.error(`Falha transitória ao carregar vagas após 3 tentativas: ${lastError}`);
+  return lastSuccessfulRadarRows;
+}
+
+async function latestIngestionRun(): Promise<IngestionRun | null> {
+  const db = getSupabaseAdmin();
+  try {
+    const result = await db.from("ingestion_runs").select("id,status,started_at,finished_at,found_count,persisted_count,created_count,updated_count,duplicate_count,strong_count,watchlist_count,hidden_count,rejected_count,resolved_count,failure_count,duration_ms")
+      .order("started_at", { ascending: false }).limit(1).maybeSingle();
+    if (result.error || !result.data) return null;
+    let visibleCreated = db.from("jobs").select("id", { count: "exact", head: true })
+      .in("display_tier", ["strong", "watchlist"])
+      .eq("is_active", true).is("duplicate_of", null)
+      .gte("first_seen_at", result.data.started_at);
+    if (result.data.finished_at) visibleCreated = visibleCreated.lte("first_seen_at", result.data.finished_at);
+    const visibleResult = await visibleCreated;
+    return {
+      ...result.data,
+      new_radar_count: visibleResult.error ? 0 : visibleResult.count || 0,
+      source_summary: {},
+      error_message: null,
+    } as IngestionRun;
+  } catch {
+    return null;
+  }
 }
 
 export async function getDashboardData(filters: JobFilters = {}): Promise<DashboardData> {
@@ -119,12 +175,15 @@ export async function getDashboardData(filters: JobFilters = {}): Promise<Dashbo
     const selected = filters.tier === "strong" ? demoJobs.filter((job) => job.display_tier !== "watchlist") : demoJobs;
     return summarize(applyFilters(selected, filters), demoJobs, filters, true, { saved: null, active: null, jobIds: [] });
   }
-  const [context, rows] = await Promise.all([userContext(), radarRows()]);
+  const [context, rows, latest] = await Promise.all([userContext(), radarRows(), latestIngestionRun()]);
   const preferences = context.profile ? preferencesFromProfile(context.profile) : emptyAreaPreferences;
   const declined = new Set(context.declinedJobIds);
   const radar = rankJobs(hydrate(rows, context.matches).map((job) => ({ ...job, display_tier: job.display_tier || "strong" })).filter((job) => isVisibleForPreferences(job, preferences) && !declined.has(job.id)));
   const selected = filters.tier === "strong" ? radar.filter((job) => job.display_tier === "strong") : radar;
-  return summarize(applyFilters(selected, filters), radar, filters, false, context);
+  return summarize(applyFilters(selected, filters), radar, filters, false, context, {
+    latest,
+    canReview: isScrapingAdmin(context.user),
+  });
 }
 
 export async function getAllJobs(tier: "radar" | "strong" = "radar"): Promise<Job[]> {

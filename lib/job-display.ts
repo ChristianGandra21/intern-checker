@@ -1,8 +1,9 @@
 import type { JobValidationInput } from "./job-validation";
+import { isNewsCandidate, usefulCompany } from "./news-leads";
 
 export type EvidenceFit = "confirmed" | "probable" | "unknown" | "incompatible";
 export type DisplayTier = "strong" | "watchlist" | "hidden";
-export const CLASSIFICATION_VERSION = "radar-v2";
+export const CLASSIFICATION_VERSION = "radar-v2-news-leads";
 
 export interface DisplayFacts {
   area_fit: "tech" | "general" | "non_tech" | "ambiguous";
@@ -32,9 +33,13 @@ export interface DisplayDecision {
 
 const plain = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 const internshipSignal = (value: string) => /\b(estagio|estagiari[oa]s?|internship|intern|programa (?:de )?estagio|summer intern)\b/.test(plain(value));
-const hiringSignal = (value: string) => /\b(inscricoes? abertas?|candidate-se|candidatura|apply|aplique|hiring|contratando|processo seletivo|vaga de estagio|oportunidade de estagio)\b/.test(plain(value));
+const hiringSignal = (value: string) => {
+  const normalized = plain(value);
+  return /\b(inscricoes? abertas?|candidate-se|candidatura|apply|aplique|hiring|contratando|processo seletivo|vaga de estagio|oportunidade de estagio)\b/.test(normalized)
+    || /\b(abre|abrem|lanca|lancam|oferece|oferecem|anuncia|anunciam)\b.{0,55}\b(vagas?|inscricoes?|programa|estagio)\b/.test(normalized);
+};
 const brazilSignal = (value: string) => /\b(brasil|brazil|br)\b/.test(plain(value));
-const saoPauloSignal = (value: string) => /\b(sao paulo|grande sao paulo|abc paulista|osasco|barueri|campinas|guarulhos|jundiai|santo andre|sao bernardo|sao caetano|cotia|jandira|sorocaba|sp,? br|sp - brasil)\b/.test(plain(value));
+const saoPauloSignal = (value: string) => /\b(sao paulo|grande sao paulo|abc paulista|osasco|barueri|campinas|guarulhos|jundiai|santo andre|sao bernardo|sao caetano|cotia|jandira|sorocaba|sao jose dos campos|gaviao peixoto|botucatu|taubate|sp,? br|sp - brasil)\b/.test(plain(value));
 const foreignSignal = (value: string) => /\b(canada|toronto|vancouver|united states|usa|estados unidos|new york|miami|california|seattle|europe|europa|united kingdom|uk|reino unido|london|londres|mexico|argentina|chile|colombia|india|madras|bangalore|singapore|australia|germany|alemanha|berlin|france|franca|spain|espanha|portugal|ireland|irlanda|netherlands|holanda|poland|polonia|japan|japao|china|israel|dubai|uae)\b/.test(plain(value));
 const outsideSaoPauloSignal = (value: string) => /\b(rio de janeiro|rj|minas gerais|belo horizonte|mg|bahia|salvador|ba|parana|curitiba|pr|santa catarina|florianopolis|sc|rio grande do sul|porto alegre|rs|pernambuco|recife|pe|ceara|fortaleza|ce|distrito federal|brasilia|df|goias|goiania)\b/.test(plain(value));
 
@@ -62,6 +67,7 @@ export function detectLocationFit(job: JobValidationInput): EvidenceFit {
     return "unknown";
   }
   if (saoPauloSignal(location)) return "confirmed";
+  if (unknownLocation && saoPauloSignal(content)) return "probable";
   if (outsideSaoPauloSignal(location) || foreignSignal(location) || (unknownLocation && outsideSaoPauloSignal(content))) return "incompatible";
   if (unknownLocation) return "unknown";
   if (/\b(?:local de trabalho|localizacao)[^.!?]{0,50}\b(?:sao paulo|osasco|barueri|campinas|guarulhos)\b/.test(content)) return "confirmed";
@@ -98,17 +104,20 @@ export function classifyDisplay(
 
   const content = `${job.title} ${job.description || ""}`;
   const hasInternship = internshipSignal(content) || Boolean(ai?.is_internship);
-  const identifiableCompany = Boolean(job.company && !/^(nao informada|não informada|unknown|rss|mastodon|telegram|google news)$/i.test(job.company.trim()));
+  const identifiableCompany = usefulCompany(job.company);
   const publishedAt = job.published_at ? Date.parse(job.published_at) : Number.NaN;
   const recentLead = Number.isFinite(publishedAt) && publishedAt >= Date.now() - 45 * 24 * 60 * 60 * 1000;
+  const qualifiedNewsWithUnknownLocation = isNewsCandidate(job) && location === "unknown";
   const qualifiedLead = facts.candidate_kind !== "lead" || (
     identifiableCompany && hiringSignal(content) && hasInternship && recentLead
-    && ["confirmed", "probable"].includes(target) && ["confirmed", "probable"].includes(location)
+    && ["confirmed", "probable"].includes(target)
+    && (["confirmed", "probable"].includes(location) || qualifiedNewsWithUnknownLocation)
   );
   if (facts.candidate_kind === "lead" && !qualifiedLead) reasons.push("lead sem todos os sinais mínimos de contratação, empresa, ciclo e Brasil/SP");
   const hardHidden = facts.duplicate_of || !facts.is_active || facts.candidate_kind === "noise"
     || !hasInternship || !["tech", "general"].includes(area)
-    || target === "incompatible" || !["confirmed", "probable"].includes(location) || !qualifiedLead;
+    || target === "incompatible" || location === "incompatible"
+    || (!qualifiedNewsWithUnknownLocation && !["confirmed", "probable"].includes(location)) || !qualifiedLead;
   let tier: DisplayTier = "hidden";
   if (!hardHidden) {
     const complete = ["confirmed", "probable"].includes(target) && ["confirmed", "probable"].includes(location);
@@ -116,7 +125,9 @@ export function classifyDisplay(
     tier = facts.candidate_kind === "lead" ? "watchlist" : complete && reliable ? "strong" : "watchlist";
   }
   if (tier === "strong") reasons.push("ciclo e localização compatíveis");
-  if (tier === "watchlist") reasons.push("oportunidade compatível aguardando confirmação");
+  if (tier === "watchlist" && facts.candidate_kind === "lead" && location === "unknown") reasons.push("notícia qualificada aguardando localização");
+  else if (tier === "watchlist") reasons.push("oportunidade compatível aguardando confirmação");
+  if (isNewsCandidate(job) && location === "probable" && saoPauloSignal(`${job.title} ${job.description || ""}`)) reasons.push("programa inclui localidade em São Paulo");
   return {
     display_tier: tier,
     target_fit: target,

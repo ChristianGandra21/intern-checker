@@ -21,6 +21,15 @@ export async function GET() {
   const migration011 = !v11Runs.error;
   const v12 = await db.from("ingestion_runs").select("persisted_count,review_count,hidden_count,failure_count,duration_ms").limit(1);
   const migration012 = !v12.error;
-  const ready = !v3.error && !v4.error && !v5.error && !v6.error && !v7.error && !v8.error && migration009 && migration010 && migration011 && migration012;
-  return NextResponse.json({ configured: true, migration003: !v3.error, migration004: !v4.error, migration005: !v5.error, migration006: !v6.error, migration007: !v7.error, migration008: !v8.error, migration009, migration010, migration011, migration012, ready }, { status: ready ? 200 : 409 });
+  const v13Jobs = await db.from("jobs").select("content_changed_at,salary_min,extracted_skills,manual_display_tier").limit(1);
+  const v13Notifications = await db.from("notification_events").select("id").limit(1);
+  const v13Recommendations = await db.from("application_recommendations").select("id").limit(1);
+  const migration013 = !v13Jobs.error && !v13Notifications.error && !v13Recommendations.error;
+  const v14 = await db.from("tracked_applications").select("decision_priority_enabled,decision_priority_score,decision_priority_criteria").limit(1);
+  const migration014 = !v14.error;
+  const v15Applications = await db.from("tracked_applications").select("company_context,company_culture,company_reviews,application_resume_text,candidate_pitch").limit(1);
+  const v15Recommendations = await db.from("application_recommendations").select("overall_assessment,company_culture_assessment,pitch_strengths,pitch_improvements,analyzed_resume,analyzed_pitch").limit(1);
+  const migration015 = !v15Applications.error && !v15Recommendations.error;
+  const ready = !v3.error && !v4.error && !v5.error && !v6.error && !v7.error && !v8.error && migration009 && migration010 && migration011 && migration012 && migration013 && migration014 && migration015;
+  return NextResponse.json({ configured: true, migration003: !v3.error, migration004: !v4.error, migration005: !v5.error, migration006: !v6.error, migration007: !v7.error, migration008: !v8.error, migration009, migration010, migration011, migration012, migration013, migration014, migration015, ready }, { status: ready ? 200 : 409 });
 }

@@ -30,6 +30,9 @@ intern-checker = "intern_checker.main:cli"
 where = ["."]
 include = ["intern_checker*"]
 
+[tool.setuptools.package-data]
+intern_checker = ["data/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

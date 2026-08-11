@@ -4,7 +4,7 @@ import { createXlsx } from "@/lib/xlsx";
 
 export const runtime = "nodejs";
 
-const columns = ["title", "company", "location", "work_mode", "source", "source_url", "display_tier", "target_fit", "location_fit", "published_at", "discovered_at", "score", "quality_score", "status", "display_reasons", "score_reasons", "validation_reasons"] as const;
+const columns = ["title", "company", "location", "work_mode", "source", "source_url", "display_tier", "target_fit", "location_fit", "published_at", "first_seen_at", "last_seen_at", "content_changed_at", "application_deadline", "salary_min", "salary_max", "workload_hours_week", "benefits", "requirements", "skills", "score", "quality_score", "status", "display_reasons", "score_reasons", "validation_reasons"] as const;
 
 function rowsOf(jobs: Awaited<ReturnType<typeof getAllJobs>>) {
   return jobs.map((job) => ({
@@ -18,7 +18,16 @@ function rowsOf(jobs: Awaited<ReturnType<typeof getAllJobs>>) {
     target_fit: job.target_fit ?? "",
     location_fit: job.location_fit ?? "",
     published_at: job.published_at ?? "",
-    discovered_at: job.discovered_at,
+    first_seen_at: job.first_seen_at || job.discovered_at,
+    last_seen_at: job.last_seen_at || "",
+    content_changed_at: job.content_changed_at || "",
+    application_deadline: job.application_deadline || "",
+    salary_min: job.salary_min || "",
+    salary_max: job.salary_max || "",
+    workload_hours_week: job.workload_hours_week || "",
+    benefits: job.benefits?.join("; ") || "",
+    requirements: job.requirements?.join("; ") || "",
+    skills: job.extracted_skills?.join("; ") || "",
     score: job.score,
     quality_score: job.quality_score ?? "",
     status: job.status,
@@ -44,7 +53,7 @@ export async function GET(_: Request, context: { params: Promise<{ format: strin
     return new NextResponse(`\uFEFF${csv}`, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="vagas-${stamp}.csv"` } });
   }
   if (format === "xlsx") {
-    const widths = [42, 24, 22, 12, 14, 48, 14, 14, 14, 20, 20, 8, 12, 12, 52, 52, 60];
+    const widths = [42, 24, 22, 12, 14, 48, 14, 14, 14, 20, 20, 20, 20, 20, 14, 14, 14, 40, 56, 34, 8, 12, 12, 52, 52, 60];
     const buffer = Buffer.from(createXlsx([...columns], rows, widths));
     return new NextResponse(buffer, { headers: { "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "content-disposition": `attachment; filename="vagas-${stamp}.xlsx"` } });
   }

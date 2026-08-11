@@ -3,9 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { validIngestKey } from "@/lib/ingest-auth";
 import { buildDedupIdentity, likelySameOpportunity } from "@/lib/job-identity";
 import { classifyDisplay, type DisplayTier } from "@/lib/job-display";
+import { extractJobDetails } from "@/lib/job-details";
 import { analyzeJobBatch, JOB_AI_MODEL, JOB_PROMPT_VERSION, type JobAiResult } from "@/lib/job-ai";
 import { validateJob, type JobValidationInput } from "@/lib/job-validation";
 import { getSupabaseAdmin, hasDatabaseConfig } from "@/lib/supabase";
+import { normalizeNewsInput } from "@/lib/news-leads";
 import { nullableTimestamp, timestampOrNow } from "@/lib/timestamps";
 
 export const runtime = "nodejs";
@@ -37,6 +39,7 @@ export async function POST(request: NextRequest) {
   if (!body?.candidates || !Array.isArray(body.candidates) || body.candidates.length > 40) return NextResponse.json({ error: "Envie até 40 candidates." }, { status: 400 });
   const candidates = body.candidates.filter((value): value is Record<string, unknown> => Boolean(value && typeof value === "object"));
   const db = getSupabaseAdmin();
+  const seenAt = new Date().toISOString();
   const schema = await db.from("raw_candidates").select("id").limit(1);
   if (schema.error) return NextResponse.json({ error: "Pipeline v2 indisponível. Execute as migrations 003 e 004 no Supabase.", detail: schema.error.message }, { status: 409 });
   const areaSchema = await db.from("jobs").select("area_fit").limit(1);
@@ -65,7 +68,7 @@ export async function POST(request: NextRequest) {
       item[field] != null && nullableTimestamp(item[field]) === null,
     );
     if (invalidDates.length) rawPayload._invalid_timestamp_fields = invalidDates;
-    const input = {
+    const input = normalizeNewsInput({
       title: String(item.title || ""), company: String(item.company || "Não informada"), description: String(item.description || ""),
       location: String(item.location || ""), work_mode: String(item.work_mode || "unknown"), source: String(item.source || "Unknown"),
       source_url: String(item.source_url || ""), published_at: nullableTimestamp(item.published_at),
@@ -75,7 +78,7 @@ export async function POST(request: NextRequest) {
       application_url: typeof item.application_url === "string" ? item.application_url : null,
       external_id: typeof item.external_id === "string" ? item.external_id : null,
       raw_payload: rawPayload,
-    } satisfies JobValidationInput;
+    } satisfies JobValidationInput);
     const contentHash = hash(JSON.stringify([input.title, input.company, input.description, input.location, input.source_url, input.application_deadline]));
     const externalId = typeof item.external_id === "string" ? item.external_id : null;
     const dedupKey = hash(`${input.source}|${externalId || input.source_url}|${contentHash}`);
@@ -168,6 +171,7 @@ export async function POST(request: NextRequest) {
     if (ai?.application_deadline && nullableTimestamp(ai.application_deadline) === null) {
       persistedRawPayload._invalid_ai_application_deadline = ai.application_deadline;
     }
+    const details = extractJobDetails({ title, description: input.description }, ai);
     return {
       title, company, description: input.description, location: input.location,
       work_mode: ai && ai.work_mode !== "unknown" ? ai.work_mode : input.work_mode, source: input.source, source_url: official || input.source_url,
@@ -186,7 +190,12 @@ export async function POST(request: NextRequest) {
       ai_last_attempt_at: attemptedHashes.has(contentHash) ? new Date().toISOString() : attemptByHash.get(contentHash)?.ai_last_attempt_at || null,
       ai_result: ai || {},
       application_deadline: nullableTimestamp(ai?.application_deadline) || input.application_deadline,
-      verification_level: verification(display.display_tier, Boolean(official)), last_seen_at: new Date().toISOString(), missing_runs: 0,
+      ...details,
+      verification_level: verification(display.display_tier, Boolean(official)), first_seen_at: seenAt,
+      last_seen_at: seenAt, content_changed_at: seenAt, missing_runs: 0,
+      manual_display_tier: null as DisplayTier | null,
+      manual_candidate_kind: null as "job" | "lead" | "noise" | null,
+      manual_fields: {} as Record<string, unknown>, moderated_at: null as string | null,
       _raw_id: rawByKey.get(dedupKey),
       _source_url: input.source_url,
       _identity_input: { ...input, title, company, external_id: externalId },
@@ -236,7 +245,7 @@ export async function POST(request: NextRequest) {
     return group.primary;
   });
   const existingResult = canonicalJobs.length
-    ? await db.from("jobs").select("id,fingerprint,dedup_group_key,official_url,application_url,external_id,verification_level,source,source_url,title,company,description,location").is("duplicate_of", null).limit(5000)
+    ? await db.from("jobs").select("id,fingerprint,dedup_group_key,official_url,application_url,external_id,verification_level,source,source_url,title,company,description,location,content_hash,first_seen_at,last_seen_at,content_changed_at,discovered_at,manual_display_tier,manual_candidate_kind,manual_fields,moderated_at").is("duplicate_of", null).limit(5000)
     : { data: [], error: null };
   if (existingResult.error) return NextResponse.json({ error: existingResult.error.message, stage: "jobs_lookup" }, { status: 400 });
   const existingByGroup = new Map((existingResult.data ?? []).filter((job) => job.dedup_group_key).map((job) => [job.dedup_group_key, job]));
@@ -251,6 +260,28 @@ export async function POST(request: NextRequest) {
       job.fingerprint = existing.fingerprint;
       existingByGroup.set(job.dedup_group_key, existing);
       existingCanonicalGroups.add(job.dedup_group_key);
+      job.first_seen_at = existing.first_seen_at || existing.discovered_at || seenAt;
+      job.discovered_at = existing.discovered_at || job.first_seen_at;
+      job.content_changed_at = existing.content_hash && existing.content_hash === job.content_hash
+        ? existing.content_changed_at || job.first_seen_at
+        : seenAt;
+      job.manual_display_tier = existing.manual_display_tier;
+      job.manual_candidate_kind = existing.manual_candidate_kind;
+      job.manual_fields = existing.manual_fields || {};
+      job.moderated_at = existing.moderated_at;
+      const corrected = existing.manual_fields && typeof existing.manual_fields === "object"
+        ? existing.manual_fields as Record<string, unknown>
+        : {};
+      for (const field of ["title", "company", "location", "work_mode", "application_deadline", "target_fit", "location_fit"] as const) {
+        if (corrected[field] !== undefined) (job as Record<string, unknown>)[field] = corrected[field];
+      }
+      if (existing.manual_display_tier) {
+        job.display_tier = existing.manual_display_tier;
+        job.validation_status = existing.manual_display_tier === "strong" ? "accepted" : existing.manual_display_tier === "watchlist" ? "review" : "rejected";
+        job.verification_level = verification(existing.manual_display_tier, Boolean(job.official_url || job.application_url));
+        job.display_reasons = ["classificação administrativa", ...job.display_reasons.filter((reason) => reason !== "classificação administrativa")];
+      }
+      if (existing.manual_candidate_kind) job.candidate_kind = existing.manual_candidate_kind;
     }
   });
   const jobsToPersist = canonicalJobs.filter((job) => {
@@ -270,6 +301,13 @@ export async function POST(request: NextRequest) {
     ? await db.from("jobs").upsert(persistedRows, { onConflict: "fingerprint" }).select("id,fingerprint")
     : { data: [], error: null };
   if (persisted.error) return NextResponse.json({ error: persisted.error.message, stage: "jobs" }, { status: 400 });
+  const seenExistingIds = [...new Set(canonicalJobs
+    .map((job) => existingByGroup.get(job.dedup_group_key)?.id)
+    .filter((id): id is string => Boolean(id)))];
+  if (seenExistingIds.length) {
+    const touched = await db.from("jobs").update({ last_seen_at: seenAt, missing_runs: 0 }).in("id", seenExistingIds);
+    if (touched.error) return NextResponse.json({ error: touched.error.message, stage: "jobs_last_seen" }, { status: 400 });
+  }
   const jobByFingerprint = new Map([
     ...(existingResult.data ?? []).map((row) => [row.fingerprint, row.id] as const),
     ...(persisted.data ?? []).map((row) => [row.fingerprint, row.id] as const),
@@ -327,6 +365,9 @@ export async function POST(request: NextRequest) {
       resolution_failed: resolutionFailed,
       analysis_failed: analysisFailed,
       failed: resolutionFailed || analysisFailed,
+      created: !existingCanonicalGroups.has(job._canonical_group),
+      updated: existingCanonicalGroups.has(job._canonical_group),
+      duplicate: canonicalFingerprint !== job.fingerprint,
     };
   });
   return NextResponse.json({
@@ -338,6 +379,9 @@ export async function POST(request: NextRequest) {
     hidden: outcomes.filter((item) => item.display_tier === "hidden").length,
     failures: outcomes.filter((item) => item.failed).length,
     resolved: prepared.filter((item) => item.item.official_url || item.item.application_url).length,
+    created: canonicalJobs.filter((job) => !existingCanonicalGroups.has(job.dedup_group_key)).length,
+    updated: canonicalJobs.filter((job) => existingCanonicalGroups.has(job.dedup_group_key)).length,
+    duplicates: Math.max(0, jobs.length - canonicalJobs.length),
     cachedAi: eligibleForAi.length - missing.length, aiWarning, outcomes,
     newStrongSourceUrls: [...new Set(newStrongSourceUrls)],
   }, { status: 201 });

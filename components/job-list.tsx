@@ -2,6 +2,7 @@
 
 import { ArchiveX, ArrowUpRight, BriefcaseBusiness, CalendarDays, LoaderCircle, MapPin, RotateCcw, X } from "lucide-react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useState } from "react";
 import type { Job } from "@/lib/types";
 import { SaveJobButton } from "./save-job-button";
@@ -30,7 +31,16 @@ function Verification({ job }: { job: Job }) {
   return <span className={`eyebrow inline-block px-2 py-1 text-[10px] ${value === "confirmed" ? "bg-[var(--green)] text-white" : "bg-[var(--acid)] text-[var(--ink)]"}`}>{label}</span>;
 }
 
-export function JobList({ jobs, isDemo, authenticated, savedJobIds }: { jobs: Job[]; isDemo: boolean; authenticated: boolean; savedJobIds: string[] }) {
+function Freshness({ job, now }: { job: Job; now: number }) {
+  const first = Date.parse(job.first_seen_at || job.discovered_at);
+  const changed = Date.parse(job.content_changed_at || "");
+  const recent = now - first < 36 * 60 * 60 * 1000;
+  const updated = Number.isFinite(changed) && changed - first > 60_000 && now - changed < 36 * 60 * 60 * 1000;
+  if (!recent && !updated) return null;
+  return <span className={`eyebrow px-2 py-1 text-[9px] ${recent ? "bg-[var(--green)] text-white" : "bg-[#e5f1fa] text-[var(--blue)]"}`}>{recent ? "Nova" : "Atualizada"}</span>;
+}
+
+export function JobList({ jobs, isDemo, authenticated, savedJobIds, now }: { jobs: Job[]; isDemo: boolean; authenticated: boolean; savedJobIds: string[]; now: number }) {
   const router = useRouter();
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
@@ -72,11 +82,9 @@ export function JobList({ jobs, isDemo, authenticated, savedJobIds }: { jobs: Jo
             <div className="flex min-w-0 gap-3">
               <span className="lg:hidden"><Score value={job.score} /></span>
               <div className="min-w-0">
-                <a href={job.application_url || job.official_url || job.source_url} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-1 font-semibold leading-tight underline-offset-4 hover:underline">
-                  {job.title}<ArrowUpRight className="shrink-0" size={16} aria-hidden="true" />
-                </a>
+                <Link href={`/jobs/${job.id}`} className="inline-flex min-h-11 items-center gap-1 font-semibold leading-tight underline-offset-4 hover:underline">{job.title}</Link>
                 <p className="text-sm font-medium text-[var(--green)]">{job.company}</p>
-                <div className="mt-2"><Verification job={job} /></div>
+                <div className="mt-2 flex flex-wrap gap-2"><Verification job={job} /><Freshness job={job} now={now} /><a href={job.application_url || job.official_url || job.source_url} target="_blank" rel="noreferrer" className="eyebrow inline-flex items-center gap-1 px-2 py-1 text-[9px] text-[var(--green)]">Site <ArrowUpRight size={12} /></a></div>
                 {job.display_tier === "watchlist" && <p className="mt-2 text-xs font-medium text-[var(--amber)]">{(job.display_reasons || []).filter((reason) => reason !== "oportunidade compatível aguardando confirmação").slice(0, 3).join(" · ")}</p>}
                 <p className="mt-2 line-clamp-1 max-w-2xl text-sm leading-relaxed text-[var(--ink-soft)]">{job.description}</p>
                 <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Motivos da pontuação">
@@ -92,7 +100,7 @@ export function JobList({ jobs, isDemo, authenticated, savedJobIds }: { jobs: Jo
               <span className="eyebrow inline-block bg-[var(--paper)] px-2 py-1 text-[var(--ink-soft)]">{job.source}</span>
               {(job.source_count || 1) > 1 && <span className="mt-1 block text-xs text-[var(--ink-soft)]">Divulgada por {job.source_count} fontes</span>}
               {job.profile_score !== null && job.profile_score !== undefined && <span className="mono mt-1 block text-[10px] text-[var(--green)]">perfil {job.profile_score}</span>}
-              <span className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-[var(--green)]"><CalendarDays size={14} /><span>Incluída {formatDate(job.discovered_at)}</span></span>
+              <span className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-[var(--green)]"><CalendarDays size={14} /><span>Incluída {formatDate(job.first_seen_at || job.discovered_at)}</span></span>
               {job.published_at && <span className="mono mt-1 block text-[10px] text-[var(--ink-soft)]">Publicada {formatDate(job.published_at)}</span>}
             </div>
             <div className="hidden lg:block"><Score value={job.score} /></div>

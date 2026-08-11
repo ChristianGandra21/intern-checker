@@ -54,3 +54,17 @@ def test_generic_listing_page_is_hidden():
 def test_mixed_internship_and_trainee_program_is_preserved():
     result = classify_visibility(make_job("Programa de Estágio e Trainee 2027"))
     assert result.display_tier == "strong"
+
+
+def test_official_program_landing_page_is_not_hidden_as_listing():
+    result = make_job("Programa de Estágio 2027")
+    result.description = "Inscrições abertas; candidate-se ao programa."
+    result.source_type = "official"
+    result.source_url = "https://acme.com/estudantes"
+    result.official_url = "https://acme.com/estudantes"
+    assert classify_visibility(result).display_tier == "strong"
+
+
+def test_embraer_city_is_compatible():
+    result = classify_visibility(make_job("Programa de Estágio 2027", "São José dos Campos"))
+    assert result.location_fit == "confirmed"

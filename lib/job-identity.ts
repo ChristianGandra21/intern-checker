@@ -4,6 +4,7 @@ import rules from "@/config/dedup-rules.json";
 export interface IdentityInput {
   title: string; company?: string; description?: string; location?: string; source_url: string;
   official_url?: string | null; application_url?: string | null; external_id?: string | null;
+  source?: string; source_type?: string;
 }
 export interface DedupIdentity {
   key: string; confidence: number; reasons: string[]; cycle: string | null; tokens: string[];
@@ -24,9 +25,23 @@ const normalizedUrl = (value: string) => {
 export const extractCycle = (text: string) => identityPlain(text).match(/\b20\d{2}(?:[ .\/-]?[12])?\b/)?.[0].replace(/[ .\/-]/g, ".") || null;
 const usefulCompany = (value: string) => {
   const normalized = identityPlain(value);
-  return normalized && !["nao informada", "rss", "google news"].some((term) => normalized.includes(term)) ? normalized : "";
+  if (!normalized || ["nao informada", "rss", "google news"].some((term) => normalized.includes(term))) return "";
+  const qualifiers = new Set(["grupo", "rede", "brasil", "brazil", "companhia", "company", "sa", "ltda", "inc"]);
+  return normalized.split(" ").filter((token) => !qualifiers.has(token)).join(" ");
 };
 const isProgram = (text: string) => rules.program_signals.some((term) => identityPlain(text).includes(term));
+const programFamily = (text: string, company: string, news: boolean) => {
+  const normalized = identityPlain(text);
+  const family = normalized.includes("jovens talentos") ? "jovens-talentos"
+    : normalized.includes("early careers") ? "early-careers"
+      : normalized.includes("summer internship") ? "summer-internship"
+        : "programa-estagio";
+  if (news) return family;
+  const companyTokens = new Set(identityTokens(company));
+  const distinctive = identityTokens(text.split(/\s(?:[-–—|])\s/)[0])
+    .filter((token) => !companyTokens.has(token) && !/^\d+$/.test(token));
+  return distinctive.length ? `${family}:${distinctive.join("|")}` : family;
+};
 export const identityTokens = (value: string) => {
   const ignored = new Set(rules.generic_terms);
   return [...new Set(identityPlain(value).split(" ").filter((token) => token.length > 1 && !ignored.has(token)))].sort();
@@ -37,9 +52,13 @@ export function buildDedupIdentity(job: IdentityInput): DedupIdentity {
   const cycle = extractCycle(`${job.title} ${job.description || ""}`);
   const company = usefulCompany(job.company || "");
   const location = identityPlain(job.location || "");
-  const program = isProgram(job.title);
+  const news = job.source_type === "news" || ["RSS", "Google Alerts"].includes(job.source || "");
+  const program = isProgram(job.title) || (news && /\b(estagio|internship)\b/.test(identityPlain(job.title)) && Boolean(cycle));
   const titleWithoutPublisher = job.title.split(/\s(?:[-–—|])\s/)[0];
   const tokens = identityTokens(`${company} ${titleWithoutPublisher}`);
+  if (program && company) {
+    return { key: digest(`program:${company}:${programFamily(job.title, company, news)}:${cycle || "unknown"}`), confidence: 94, reasons: ["mesmo programa, organização e ciclo"], cycle, tokens, company, location, program };
+  }
   if (job.external_id && bestUrl) {
     let host = "unknown";
     try { host = new URL(bestUrl).hostname; } catch { /* URL inválida cai na identidade textual de segurança. */ }
@@ -62,8 +81,11 @@ export function likelySameDedupIdentity(left: DedupIdentity, right: DedupIdentit
   if (left.key === right.key) return { same: true, confidence: Math.min(left.confidence, right.confidence), reason: left.reasons[0] };
   if (left.cycle && right.cycle && left.cycle !== right.cycle) return { same: false, confidence: 0, reason: "ciclos diferentes" };
   if (left.company && right.company && left.company !== right.company) return { same: false, confidence: 0, reason: "empresas diferentes" };
-  const shared = left.tokens.filter((token) => right.tokens.includes(token));
-  const score = overlap(left.tokens, right.tokens);
+  const companyTokens = new Set([...identityTokens(left.company), ...identityTokens(right.company)]);
+  const leftComparable = left.tokens.filter((token) => !companyTokens.has(token));
+  const rightComparable = right.tokens.filter((token) => !companyTokens.has(token));
+  const shared = leftComparable.filter((token) => rightComparable.includes(token));
+  const score = overlap(leftComparable, rightComparable);
   const programs = left.program && right.program;
   const distinctiveShared = shared.filter((token) => token.length >= 3);
   const compatibleLocation = !left.location || !right.location || left.location === right.location || left.location.includes(right.location) || right.location.includes(left.location);

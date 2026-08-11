@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { classifyArea, type AreaFit } from "./area-fit";
 import { classifyDisplay, detectLocationFit, detectTargetFit, type DisplayTier, type EvidenceFit } from "./job-display";
+import { isNewsCandidate } from "./news-leads";
 
 export type CandidateKind = "job" | "lead" | "noise";
 export type ValidationStatus = "accepted" | "review" | "rejected";
@@ -50,12 +51,18 @@ const CLOSED = /\b(vaga encerrada|inscri[cç][oõ]es encerradas?|processo seleti
 const NON_JOB_TITLE = /\b(concurso|vestibular|fies|curso(?:s)? gratuito|professor(?:a|es)?|licita[cç][aã]o|pr[eê]mio|nomea[cç][aã]o|jovem aprendiz|aprendizagem)\b/i;
 const SENIOR_TITLE = /\b(s[eê]nior|senior|staff|principal|lead)\b/i;
 const TRAINEE_TITLE = /\btrainee\b/i;
-const APPLICATION_SIGNAL = /\b(inscri[cç][oõ]es abertas?|candidate-se|candidatura|apply|aplicar|processo seletivo|vaga de est[aá]gio|oportunidade de est[aá]gio)\b/i;
+const APPLICATION_SIGNAL = /\b(inscri[cç][oõ]es abertas?|candidate-se|candidatura|apply|aplicar|processo seletivo|vaga de est[aá]gio|oportunidade de est[aá]gio)\b|\b(?:abre|abrem|lan[cç]a|lan[cç]am|oferece|oferecem|anuncia|anunciam)\b.{0,55}\b(?:vagas?|inscri[cç][oõ]es?|programa|est[aá]gio)\b/i;
 const GENERIC_TITLE = /^(vagas?|carreiras?|oportunidades?|saiba mais|acesse|clique aqui|ver vagas?|est[aá]gio|home|in[ií]cio|s[aã]o paulo|brasil|home office(?: \(\d+\))?)$/i;
-const LISTING_TITLE = /(?:^|\b)\d[\d.,]*\s+vagas?(?:\b|\()|\bvagas? (?:de|para)\b|search thousands of jobs|avalia[cç][oõ]es da empresa|empresas que contratam|lista de empresas/i;
+const LISTING_TITLE = /^\s*(?:\d[\d.,]*\s+vagas?(?:\b|\()|vagas? (?:de|para)\b)|search thousands of jobs|avalia[cç][oõ]es da empresa|empresas que contratam|lista de empresas/i;
 const SEEKER_OR_ARTICLE = /#?opentowork|\b(?:estou|i am) (?:procurando|looking for)\b|\bbusco (?:uma )?(?:vaga|est[aá]gio)\b|\b(?:meu amigo|minha amiga).{0,40}\b(?:procura|busca)\b|\bcomo (?:conseguir|encontrar|se preparar)\b|\bdicas? (?:para|de)\b|\bguia (?:de|para)\b|\brecrutador(?:a|es)?\b/i;
 const LEAD_SOURCES = new Set(["RSS", "Mastodon", "X", "Bluesky", "Reddit", "Hacker News", "Forums", "Communities", "Telegram", "Google Alerts"]);
-const TRUSTED_JOB_SOURCES = new Set(["LinkedIn", "Gupy", "Vagas.com", "Indeed", "Infojobs", "Catho", "Solides", "CIEE", "Nube", "99jobs", "Lever", "Greenhouse", "Ashby", "Workday", "Careers", "Planilha comunitária"]);
+const TRUSTED_JOB_SOURCES = new Set([
+  "LinkedIn", "Gupy", "Vagas.com", "Indeed", "Infojobs", "Catho", "Solides", "CIEE", "Nube",
+  "99jobs", "Cia de Estágios", "Cia de Talentos", "Super Estágios", "Estagiarios.com",
+  "Estágio Trainee", "Futura Estágios", "WallJobs", "Eureca", "IEL", "ABRE", "Na Prática",
+  "Universia", "Empregare", "Across", "Seja Trainee", "O Trainee", "Lever", "Greenhouse",
+  "Ashby", "Workday", "Careers", "Planilha comunitária",
+]);
 const LISTING_PATHS = [/\/job-search\/?/i, /\/jobs?\/?$/i, /\/vagas\/?$/i, /\/carreiras\/?$/i, /\/careers\/?$/i, /\/estudantes\/?$/i, /\/empregos\.aspx$/i, /\/search\/?$/i, /\/lista-de-vagas/i];
 
 const plain = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").replace(/\s+/g, " ").trim();
@@ -120,6 +127,13 @@ function hasIndividualEvidence(job: JobValidationInput) {
   } catch { return false; }
 }
 
+function isOfficialProgramPage(job: JobValidationInput, text: string) {
+  return !isNewsCandidate(job)
+    && INTERNSHIP.test(job.title)
+    && APPLICATION_SIGNAL.test(text)
+    && Boolean(job.official_url || job.application_url || job.source_type === "official");
+}
+
 export function validateJob(job: JobValidationInput): JobValidation {
   const title = job.title.trim();
   const text = `${title} ${job.description || ""}`;
@@ -129,14 +143,17 @@ export function validateJob(job: JobValidationInput): JobValidation {
   let active = true;
   let hardReject = false;
   const hasOfficial = Boolean(job.official_url || job.application_url);
-  const isNews = job.source_type === "news" || ["RSS", "Google Alerts"].includes(job.source);
+  const isNews = isNewsCandidate(job);
   const rowPayload = job.raw_payload?.row;
   const structuredArea = rowPayload && typeof rowPayload === "object" && "area" in rowPayload
     ? String((rowPayload as Record<string, unknown>).area || "")
     : "";
-  const area = classifyArea(`${structuredArea} ${title}`, job.description || "");
+  let area = classifyArea(`${structuredArea} ${title}`, job.description || "");
   const targetFit = detectTargetFit(job);
   const locationFit = detectLocationFit(job);
+  if (isNews && area.area_fit === "ambiguous" && INTERNSHIP.test(title) && APPLICATION_SIGNAL.test(text) && targetFit !== "incompatible") {
+    area = { area_fit: "general", area_reasons: ["notícia sobre programa geral de estágio"], primary_area: "general", area_tags: ["general"] };
+  }
 
   if (job.raw_payload?._prefiltered === true) {
     quality = 0; kind = "noise"; hardReject = true; reasons.push("descartada pelo pré-filtro antes do enriquecimento");
@@ -167,10 +184,11 @@ export function validateJob(job: JobValidationInput): JobValidation {
   if (LEAD_SOURCES.has(job.source) && hasOfficial) { quality += 5; reasons.push("fonte indireta ligada a uma candidatura"); }
   if (APPLICATION_SIGNAL.test(text)) { quality += 8; reasons.push("há sinal de candidatura"); }
 
-  if (GENERIC_TITLE.test(title) || LISTING_TITLE.test(title) || SEEKER_OR_ARTICLE.test(text) || isListingUrl(job.source_url)) {
+  const officialProgram = isOfficialProgramPage(job, text);
+  if (GENERIC_TITLE.test(title) || LISTING_TITLE.test(title) || SEEKER_OR_ARTICLE.test(text) || (isListingUrl(job.source_url) && !officialProgram)) {
     quality -= 45; kind = "noise"; hardReject = true; reasons.push("página genérica, não uma vaga individual");
   }
-  if (kind === "job" && !hasIndividualEvidence(job)) {
+  if (kind === "job" && !hasIndividualEvidence(job) && !officialProgram) {
     quality -= 30; kind = "noise"; hardReject = true; reasons.push("URL sem evidência de vaga individual");
   }
   if (title.length > 220) { quality -= 25; reasons.push("título contém texto de post ou página inteira"); }

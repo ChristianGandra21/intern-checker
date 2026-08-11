@@ -4,6 +4,8 @@ import { Archive, ArrowDown, ArrowUp, ArrowUpRight, Check, FileText, LoaderCircl
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ApplicationStateBadge, applicationStateClasses, applicationStateOptions } from "@/components/application-state-badge";
+import { ApplicationAdvice } from "@/components/application-advice";
+import { ApplicationPriorityScore } from "@/components/application-priority-score";
 import { GoogleCalendarLink } from "@/components/google-calendar-link";
 import { formatSaoPauloDateTime, saoPauloInputValue } from "@/lib/date-time";
 import type { ApplicationStage, ApplicationState, StageState, TrackedApplication } from "@/lib/types";
@@ -117,6 +119,10 @@ export function ApplicationDetail({ initial }: { initial: TrackedApplication }) 
       </details>
     </section>
 
+    <ApplicationPriorityScore application={application} />
+
+    <ApplicationAdvice application={application} initial={application.application_recommendations?.[0] || null} />
+
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
       <section className="surface overflow-hidden">
         <div className="flex flex-wrap items-end justify-between gap-4 bg-[var(--ink)] p-6 text-white"><div><p className="eyebrow text-[var(--acid)]">Linha do tempo</p><h2 className="mt-2 text-3xl font-semibold tracking-[-.05em]">Etapas do processo</h2></div><ApplicationStateBadge state={application.application_state} long /></div>
@@ -129,8 +135,9 @@ export function ApplicationDetail({ initial }: { initial: TrackedApplication }) 
           <div className="grid grid-cols-2 gap-3 border border-[var(--line)] bg-white p-4 text-xs"><p><span className="eyebrow block text-[var(--ink-soft)]">Adicionada</span><span className="mt-1.5 block leading-relaxed">{formatSaoPauloDateTime(application.created_at)}</span></p><p><span className="eyebrow block text-[var(--ink-soft)]">Atualizada</span><span className="mt-1.5 block leading-relaxed">{formatSaoPauloDateTime(application.updated_at)}</span></p></div>
           <Field label="Prazo da vaga"><input className="field" name="application_deadline" type="datetime-local" defaultValue={saoPauloInputValue(application.application_deadline)} /></Field>
           <GoogleCalendarLink title={`Prazo da candidatura — ${application.company}`} start={application.application_deadline || ""} details={calendarDetails} location={application.location} />
-          <Field label="Prioridade"><select className="field" name="priority" defaultValue={String(application.priority)}><option value="0">Baixa</option><option value="1">Normal</option><option value="2">Alta</option><option value="3">Essencial</option></select></Field>
+          <Field label="Prioridade manual"><select className="field" name="priority" defaultValue={String(application.priority)}><option value="0">Baixa</option><option value="1">Normal</option><option value="2">Alta</option><option value="3">Essencial</option></select></Field>
           <Field label="Notas"><textarea className="field min-h-40 resize-y" name="notes" defaultValue={application.notes} /></Field>
+          {application.application_state === "rejected" && <Field label="Motivo da reprovação"><select className="field" name="rejection_reason" defaultValue={application.rejection_reason}><option value="">Não informado</option><option value="triagem de currículo">Triagem de currículo</option><option value="teste ou desafio">Teste ou desafio</option><option value="entrevista com RH">Entrevista com RH</option><option value="entrevista técnica">Entrevista técnica</option><option value="experiência ou competências">Experiência ou competências</option><option value="localização ou modalidade">Localização ou modalidade</option><option value="processo encerrado">Processo encerrado</option><option value="outro">Outro</option></select></Field>}
           {message && <p className={`text-sm ${/atualizada|atualizado|salva/.test(message) ? "text-[var(--green)]" : "text-[var(--red)]"}`} role="status">{message}</p>}
           <button disabled={busy === "application"} className="button-dark">{busy === "application" ? <LoaderCircle className="animate-spin" size={17} /> : <Save size={17} />}Salvar alterações</button>
           <button type="button" onClick={archive} disabled={busy === "archive"} className="button-light text-[var(--red)]"><Archive size={17} />Arquivar vaga</button>

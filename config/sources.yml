@@ -1,5 +1,5 @@
 pipeline:
-  source_timeout_seconds: 35
+  source_timeout_seconds: 45
 
 search:
   max_results: 6
@@ -14,9 +14,9 @@ pages:
 
 enrichment:
   concurrency: 12
-  limit: 100
+  limit: 140
   timeout_seconds: 10
-  stage_timeout_seconds: 90
+  stage_timeout_seconds: 120
 
 ats:
   concurrency: 4
@@ -126,6 +126,32 @@ searches:
     query: 'site:eureca.me ("estágio" OR "jovens talentos" OR "programa") 2027'
   - source: 99jobs
     query: 'site:99jobs.com ("estágio" OR "jovens talentos" OR "programa de estágio") 2027'
+  - source: Super Estágios
+    query: 'site:superestagios.com.br ("programa de estágio" OR "vaga de estágio") (Brasil OR "São Paulo" OR remoto)'
+  - source: Estagiarios.com
+    query: 'site:estagiarios.com ("programa de estágio" OR "vaga de estágio") (Brasil OR "São Paulo" OR remoto)'
+  - source: Futura Estágios
+    query: 'site:futuraestagios.com.br ("programa de estágio" OR "vaga de estágio") (Brasil OR "São Paulo" OR remoto)'
+  - source: WallJobs
+    query: 'site:walljobs.com.br ("programa de estágio" OR "vaga de estágio") (Brasil OR "São Paulo" OR remoto)'
+  - source: Estágio Trainee
+    query: 'site:estagiotrainee.com "programa de estágio" (Brasil OR "São Paulo" OR remoto)'
+  - source: Across
+    query: '(site:across.jobs OR site:across.com.br) "programa de estágio" (Brasil OR "São Paulo")'
+  - source: IEL
+    query: 'site:carreiras.iel.org.br ("estágio" OR "programa de estágio") "São Paulo"'
+  - source: ABRE
+    query: 'site:portalabre.com.br ("estágio" OR "programa de estágio") "São Paulo"'
+  - source: Na Prática
+    query: 'site:napratica.org.br "programa de estágio" (Brasil OR "São Paulo")'
+  - source: Universia
+    query: 'site:universia.net "programa de estágio" (Brasil OR "São Paulo")'
+  - source: Empregare
+    query: 'site:empregare.com ("estágio" OR "programa de estágio") (Brasil OR "São Paulo" OR remoto)'
+  - source: Seja Trainee
+    query: 'site:sejatrainee.com.br "programa de estágio" (Brasil OR "São Paulo")'
+  - source: O Trainee
+    query: 'site:otrainee.com.br "programa de estágio" (Brasil OR "São Paulo")'
   - source: Indeed
     query: 'site:br.indeed.com ("estágio" OR intern) ("2027" OR "2027.1" OR "primeiro semestre") ("São Paulo" OR remoto OR Brasil)'
   - source: Glassdoor
@@ -202,20 +228,21 @@ public_pages:
   - name: CIEE — estudantes
     source: CIEE
     company: Não informada
-    url: https://portal.ciee.org.br/estudantes/
+    url: https://portal.ciee.org.br/
     link_selector: a[href*="/vaga/"], a[href*="/vagas/"]
     limit: 40
   - name: Nube — vagas
     source: Nube
     company: Não informada
-    url: https://www.nube.com.br/estudantes/vagas
+    url: https://www.nube.com.br/estudantes/vagas/index_html
     link_selector: a[href*="/vagas/"]
     limit: 40
   - name: Cia de Estágios — vagas
     source: Cia de Estágios
     company: Não informada
-    url: https://www.ciadeestagios.com.br/vagas/
+    url: https://www.ciadeestagios.com.br/
     link_selector: a[href*="/vaga/"], a[href*="/vagas/"]
+    title_pattern: '(Programa de Estágio.{0,100}?20[0-9]{2})'
     limit: 40
   - name: Cia de Talentos — vagas
     source: Cia de Talentos
@@ -232,9 +259,23 @@ public_pages:
   - name: 99jobs — oportunidades
     source: 99jobs
     company: Não informada
-    url: https://www.99jobs.com/
+    url: https://www.99jobs.com/collections/seu-proximo-estagio-ta-on
     link_selector: a[href*="/jobs/"], a[href*="/vagas/"]
+    title_pattern: '(Programa de Estágio.{0,140}?20[0-9]{2}.{0,80})'
     limit: 40
+  - name: WallJobs — estágio
+    source: WallJobs
+    company: Não informada
+    url: https://www.walljobs.com.br/
+    link_selector: a[href*="/vaga"], a[href*="/job"]
+    limit: 30
+  - name: IEL São Paulo — estágio
+    source: IEL
+    company: Não informada
+    location: São Paulo, SP
+    url: https://carreiras.iel.org.br/SP
+    link_selector: a[href*="/vaga"], a[href*="/oportunidade"]
+    limit: 30
 
 # Páginas específicas usam seletores CSS por empresa. A lista começa vazia até
 # as empresas-alvo serem definidas, evitando scrapers genéricos que geram ruído.

@@ -6,5 +6,9 @@
   {"name":"foreign remote","expected":"hidden","title":"Software Engineering Intern 2027","description":"Apply for our internship","location":"Toronto, Canada","work_mode":"remote"},
   {"name":"general SP program","expected":"strong","title":"Programa de Estágio 2027","description":"Inscrições abertas para trilhas gerais","location":"São Paulo, SP","area_fit":"general"},
   {"name":"individual tech internship","expected":"strong","title":"Estágio em Segurança da Informação 2027.1","description":"Candidate-se para a vaga","location":"Barueri, SP"},
-  {"name":"qualified social lead","expected":"watchlist","title":"Inscrições abertas: estágio em tecnologia 2027","description":"A Acme está contratando estudantes para São Paulo. Candidate-se.","location":"São Paulo, SP","source":"Mastodon","source_type":"social"}
+  {"name":"qualified social lead","expected":"watchlist","title":"Inscrições abertas: estágio em tecnologia 2027","description":"A Acme está contratando estudantes para São Paulo. Candidate-se.","location":"São Paulo, SP","source":"Mastodon","source_type":"social"},
+  {"name":"Embraer news without location","expected":"watchlist","title":"Embraer abre 200 vagas para Programa de Estágio 2027","description":"Inscrições abertas para estudantes","location":"","source":"RSS","source_type":"news","area_fit":"general"},
+  {"name":"Unilever news without location","expected":"watchlist","title":"Unilever abre 50 vagas em programa de estágio 2027","description":"Candidate-se ao processo seletivo","location":"","source":"RSS","source_type":"news","area_fit":"general"},
+  {"name":"Rede D'Or includes SP and RJ","expected":"watchlist","title":"Rede D'Or abre estágio 2027 com vagas em São Paulo e Rio de Janeiro","description":"Inscrições abertas para o programa","location":"","source":"RSS","source_type":"news","area_fit":"general"},
+  {"name":"Unilever only Pernambuco","expected":"hidden","title":"Unilever abre programa de estágio 2027 em Pernambuco","description":"Inscrições abertas para Recife","location":"","source":"RSS","source_type":"news","area_fit":"general"}
 ]

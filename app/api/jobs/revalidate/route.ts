@@ -4,6 +4,7 @@ import { buildDedupIdentity, likelySameDedupIdentity } from "@/lib/job-identity"
 import { classifyDisplay, hasKnownForeignLocation } from "@/lib/job-display";
 import { checkJobUrl, validateJob, type JobValidation, type JobValidationInput } from "@/lib/job-validation";
 import { getSupabaseAdmin, hasDatabaseConfig } from "@/lib/supabase";
+import { normalizeNewsInput } from "@/lib/news-leads";
 import type { JobStatus } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest) {
   if (radarSchema.error) return NextResponse.json({ error: "Execute a migration 007 antes da revalidação.", detail: radarSchema.error.message }, { status: 409 });
   const result = await supabase.from("jobs").select("*").order("discovered_at", { ascending: false }).limit(5000);
   if (result.error) return NextResponse.json({ error: result.error.message }, { status: 400 });
-  const jobs = (result.data ?? []) as StoredJob[];
+  const jobs = (result.data ?? []).map((job) => normalizeNewsInput(job as StoredJob)) as StoredJob[];
   const validations = new Map(jobs.map((job) => [job.id, validateJob(job)]));
   const checkedUrls = urlLimit ? await checkLinks(jobs, validations, urlLimit) : 0;
 
@@ -112,18 +113,29 @@ export async function POST(request: NextRequest) {
       ? job.ai_result as Parameters<typeof classifyDisplay>[2]
       : null;
     const display = classifyDisplay(job, { ...validation, duplicate_of: primaryId }, ai);
+    const corrected = job.manual_fields && typeof job.manual_fields === "object" ? job.manual_fields as Record<string, unknown> : {};
+    const finalTier = job.manual_display_tier || display.display_tier;
+    const finalKind = job.manual_candidate_kind || validation.candidate_kind;
+    const finalTarget = typeof corrected.target_fit === "string" ? corrected.target_fit : display.target_fit;
+    const finalLocation = typeof corrected.location_fit === "string" ? corrected.location_fit : display.location_fit;
     return {
       ...job,
       ...validation,
+      ...corrected,
       dedup_group_key: groupKeyById.get(job.id) || dedupMeta.get(job.id)?.key,
       dedup_confidence: primaryId ? groupMatch.get(job.id)?.confidence || dedupMeta.get(job.id)?.confidence || 0 : dedupMeta.get(job.id)?.confidence || 0,
       dedup_reasons: primaryId ? [...new Set([...(dedupMeta.get(job.id)?.reasons || []), groupMatch.get(job.id)?.reason || "agrupada por identidade global"])] : dedupMeta.get(job.id)?.reasons || [],
       duplicate_of: primaryId,
       status: groupStatus.get(primaryFor(job.id)) || job.status,
       ...display,
-      validation_status: display.display_tier === "strong" ? "accepted" : display.display_tier === "watchlist" ? "review" : "rejected",
-      verification_level: display.display_tier === "hidden" ? "rejected"
-        : display.display_tier === "watchlist" ? "review"
+      candidate_kind: finalKind,
+      display_tier: finalTier,
+      target_fit: finalTarget,
+      location_fit: finalLocation,
+      display_reasons: job.manual_display_tier ? ["classificação administrativa", ...(display.display_reasons || [])] : display.display_reasons,
+      validation_status: finalTier === "strong" ? "accepted" : finalTier === "watchlist" ? "review" : "rejected",
+      verification_level: finalTier === "hidden" ? "rejected"
+        : finalTier === "watchlist" ? "review"
           : validation.validation_reasons.includes("link verificado") || Boolean(job.official_url || job.application_url) ? "confirmed" : "probable",
       validation_reasons: primaryId ? [...new Set([...validation.validation_reasons, "duplicada de outra vaga mais completa"])] : validation.validation_reasons,
     };
@@ -189,6 +201,8 @@ export async function POST(request: NextRequest) {
     groupSamples,
     hiddenSample: hiddenByPreferences.slice(0, 20).map((job) => ({ id: job.id, title: job.title, company: job.company, primary_area: job.primary_area, area_tags: job.area_tags })),
     transitionSample: updates.filter((job) => job.display_tier !== jobs.find((old) => old.id === job.id)?.display_tier).slice(0, 30).map((job) => ({ id: job.id, title: job.title, company: job.company, from: jobs.find((old) => old.id === job.id)?.display_tier, to: job.display_tier, reasons: [...job.validation_reasons, ...job.display_reasons].slice(0, 5) })),
+    qualifiedNewsSample: updates.filter((job) => !job.duplicate_of && job.display_tier === "watchlist" && job.candidate_kind === "lead" && ["RSS", "Google Alerts"].includes(job.source)).slice(0, 30).map((job) => ({ id: job.id, title: job.title, company: job.company, target_fit: job.target_fit, location_fit: job.location_fit, reasons: job.display_reasons })),
+    newsDecisionSample: updates.filter((job) => ["RSS", "Google Alerts"].includes(job.source) && job.published_at && Date.parse(job.published_at) >= Date.now() - 45 * 24 * 60 * 60 * 1000).slice(0, 100).map((job) => ({ id: job.id, title: job.title, company: job.company, candidate_kind: job.candidate_kind, area_fit: job.area_fit, target_fit: job.target_fit, location_fit: job.location_fit, display_tier: job.display_tier, duplicate_of: job.duplicate_of, reasons: job.display_reasons })),
     visibleSample: updates.filter((job) => !job.duplicate_of && job.display_tier !== "hidden").slice(0, 40).map((job) => ({ id: job.id, title: job.title, company: job.company, candidate_kind: job.candidate_kind, display_tier: job.display_tier, target_fit: job.target_fit, location_fit: job.location_fit })),
     foreignVisibleSample: updates.filter((job) => !job.duplicate_of && job.display_tier !== "hidden" && hasKnownForeignLocation(job)).map((job) => ({ id: job.id, title: job.title, company: job.company, location: job.location, work_mode: job.work_mode, location_fit: job.location_fit })),
   });

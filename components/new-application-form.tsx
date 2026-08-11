@@ -26,7 +26,7 @@ export function NewApplicationForm() {
       <Field label="Localização"><input className="field" name="location" placeholder="São Paulo ou remoto" /></Field>
       <Field label="Modalidade"><select className="field" name="work_mode" defaultValue="unknown"><option value="unknown">Não informada</option><option value="remote">Remoto</option><option value="hybrid">Híbrido</option><option value="onsite">Presencial</option></select></Field>
       <Field label="Prazo da inscrição"><input className="field" name="application_deadline" type="datetime-local" /></Field>
-      <Field label="Prioridade"><select className="field" name="priority" defaultValue="1"><option value="0">Baixa</option><option value="1">Normal</option><option value="2">Alta</option><option value="3">Essencial</option></select></Field>
+      <Field label="Prioridade manual"><select className="field" name="priority" defaultValue="1"><option value="0">Baixa</option><option value="1">Normal</option><option value="2">Alta</option><option value="3">Essencial</option></select></Field>
       <Field label="Descrição" wide><textarea className="field min-h-32 resize-y" name="description" /></Field>
       <Field label="Notas pessoais" wide><textarea className="field min-h-28 resize-y" name="notes" placeholder="Contato, requisitos, lembretes..." /></Field>
     </div>

@@ -28,7 +28,7 @@ LinkedIn, X e portais com proteção contra automação são consultados por bus
 - Scraping renderizado opcional via Playwright para portais que dependem de JavaScript.
 - Score de 0–100 com motivos visíveis e penalidades de senioridade/área.
 - Deduplicação global por ID de ATS, URLs oficiais, empresa/programa/ciclo e similaridade protegida.
-- API de ingestão em lote protegida por chave.
+- API de ingestão em lote protegida por chave, com distinção entre oportunidades novas, atualizadas e já conhecidas.
 - Postgres com histórico de vagas, candidaturas pessoais e execuções.
 - Dashboard responsivo e paginado, com 20 vagas por página.
 - Login persistente por e-mail e senha com Supabase Auth.
@@ -44,6 +44,10 @@ LinkedIn, X e portais com proteção contra automação são consultados por bus
 - Deduplicação persistente entre ciclos e verificação diária dos links prioritários.
 - Política `radar-v2`: tecnologia ampla e programas gerais, presencial/híbrido em São Paulo e remoto explicitamente brasileiro; a watchlist aceita detalhes/ciclo pendentes, mas exige localização compatível.
 - Ciclo de ingestão por execução e lote, com totais de persistidos, fortes, análise, rejeitados, ocultos, resolvidos, falhas e duração por fonte.
+- Auditoria administrativa por execução, overrides persistentes e exportação das correções como dataset de regressão.
+- Página consolidada de cada vaga com histórico, fontes, prazo, bolsa, carga horária, requisitos, benefícios e competências extraídas.
+- Caixa de entrada pessoal, buscas salvas, alertas idempotentes e lembretes de prazo.
+- Recomendações consultivas para currículo, estudo e entrevista, sem preencher ou enviar candidaturas.
 - Download sob demanda em CSV e XLSX, além dos arquivos de cada ciclo.
 - Resumo diário via Gmail SMTP e, opcionalmente, Telegram.
 - GitHub Actions diário às 08:15 no horário de São Paulo.
@@ -62,7 +66,7 @@ Abra `http://localhost:3000`. Sem variáveis de banco, a interface inicia em mod
 ## Configurar o Supabase
 
 1. Crie um projeto gratuito no Supabase.
-2. Execute, em ordem, as migrations `001` a [012_ingestion_quality.sql](supabase/migrations/012_ingestion_quality.sql) no SQL Editor.
+2. Execute, em ordem, as migrations `001` a [015_application_advice_context.sql](supabase/migrations/015_application_advice_context.sql) no SQL Editor.
 3. Copie `.env.example` para `.env.local` e preencha:
 
 ```dotenv
@@ -182,9 +186,28 @@ JOBS_API_URL=http://localhost:3000/api/jobs
 INGEST_API_KEY=a-mesma-chave-do-dashboard
 ```
 
-As consultas, limites, timeouts, feeds, planilha comunitária, redes sociais e seletores de páginas ficam em [config/sources.yml](config/sources.yml). O pré-filtro evita enriquecer navegação e posts fracos, mas preserva esses registros para auditoria no backend. Use `--min-score` apenas quando quiser forçar um filtro manual na ingestão.
+As consultas, limites, timeouts, feeds, planilha comunitária, redes sociais e seletores de páginas ficam em [config/sources.yml](config/sources.yml). A cobertura inclui portais gerais, ATS, páginas diretas de empresas e portais especializados como CIEE, Nube, Cia de Estágios, Cia de Talentos, Eureca, 99jobs, WallJobs, IEL, ABRE, Super Estágios, Futura Estágios, Estagiarios.com, Across, Universia e Empregare. A lista não funciona como permissão automática: cada resultado ainda precisa provar que é uma oportunidade individual ou uma página oficial de programa.
 
-A pipeline abre um `ingestion_run`, envia todos os lotes com o mesmo `run_id` e só então finaliza os totais agregados. A API devolve a decisão `radar-v2` por URL; essa decisão do backend também controla os CSV/XLSX e alertas, evitando divergência com o dashboard. O resumo final mostra rendimento, duração por fonte e motivos predominantes de descarte.
+O pré-filtro elimina navegação, filtros, paginação, trainee puro e jovem aprendiz antes da etapa cara. Depois, o enriquecimento abre uma amostra priorizada de páginas oficiais e programas, extrai JSON-LD, texto, localização, prazo e link de candidatura, seguindo o link oficial quando houver. O orçamento padrão é de 140 páginas, 12 requisições concorrentes, 10 segundos por URL e 120 segundos para a etapa inteira; assim uma fonte lenta não bloqueia o ciclo. No backend, regras explicáveis tomam a primeira decisão e a Groq, quando `GROQ_API` está configurada, analisa em lotes somente oportunidades não ruidosas com área, ciclo ou localização ambíguos. O resultado é armazenado em cache por conteúdo. Use `--min-score` apenas quando quiser forçar um filtro manual na ingestão.
+
+A pipeline abre um `ingestion_run`, envia todos os lotes com o mesmo `run_id` e só então finaliza os totais agregados. A API devolve a decisão `radar-v2-news-leads` por URL; essa decisão do backend também controla os CSV/XLSX e alertas, evitando divergência com o dashboard. O resumo final mostra rendimento, duração por fonte e motivos predominantes de descarte.
+
+`first_seen_at` representa a inclusão real no radar, `last_seen_at` registra a última coleta em que a oportunidade apareceu e `content_changed_at` muda somente quando o conteúdo canônico é atualizado. A página **Coleta** liga a execução administrativa ao respectivo `ingestion_run`, permitindo inspecionar vagas ocultas, rendimento por fonte e correções manuais. Overrides administrativos sobrevivem a ingestões e revalidações futuras; o download do dataset de regressão permite transformar essas correções em testes antes de alterar regras ou prompts.
+
+## Caixa de entrada e recomendações
+
+A caixa de entrada pessoal fica em `/inbox`. Ela reúne vagas fortes realmente novas, atualizações relevantes e prazos das vagas acompanhadas. Buscas salvas restringem os alertas, e vagas dispensadas ou já acompanhadas não geram novamente um alerta de descoberta.
+
+Por segurança, os eventos começam em modo de pré-visualização:
+
+```dotenv
+NOTIFICATION_EMAIL_SEND_ENABLED=false
+MANUAL_ALERTS_ENABLED=false
+```
+
+Depois de validar os eventos em `/inbox` e configurar `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` e `SMTP_PASSWORD`, defina `NOTIFICATION_EMAIL_SEND_ENABLED=true`. O workflow diário chama o processador autenticado de alertas. Coletas manuais permanecem silenciosas enquanto `MANUAL_ALERTS_ENABLED=false`.
+
+Em **Minhas vagas**, o assistente consultivo compara a descrição com o perfil e salva recomendações por versão do conteúdo. Sem Groq ele usa regras locais; com `GROQ_API` e IA habilitada no perfil, produz uma análise mais detalhada. Ele nunca preenche formulários, escreve uma candidatura final ou envia dados a uma empresa.
 
 Para habilitar scraping renderizado em portais que dependem de JavaScript:
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
@@ -16,6 +17,13 @@ def _valid_url(value: str) -> bool:
     return urlsplit(value).scheme in {"http", "https"}
 
 
+def _browser_launch_options() -> dict:
+    options = {"headless": True}
+    if channel := os.getenv("PLAYWRIGHT_BROWSER_CHANNEL", "").strip():
+        options["channel"] = channel
+    return options
+
+
 async def _collect_rendered_page(page_config: dict) -> list[JobCandidate]:
     if page_config.get("enabled", True) is False:
         return []
@@ -25,7 +33,7 @@ async def _collect_rendered_page(page_config: dict) -> list[JobCandidate]:
         raise RuntimeError("Playwright não instalado. Rode: pip install -e './collector[dynamic]'") from exc
 
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=True)
+        browser = await playwright.chromium.launch(**_browser_launch_options())
         page = await browser.new_page()
         await page.goto(
             page_config["url"],

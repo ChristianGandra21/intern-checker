@@ -143,7 +143,7 @@ async function radarRows() {
     if (!transientDatabaseError(lastError)) throw new Error(`Falha ao carregar vagas: ${lastError}`);
     if (attempt < 2) await retryDelay(attempt);
   }
-  console.error(`Falha transitória ao carregar vagas após 3 tentativas: ${lastError}`);
+  console.warn(`Falha transitória ao carregar vagas após 3 tentativas: ${lastError}`);
   return lastSuccessfulRadarRows;
 }
 

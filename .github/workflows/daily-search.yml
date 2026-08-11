@@ -43,7 +43,7 @@ jobs:
         id: install
         run: |
           pip install './collector[dynamic]'
-          playwright install --with-deps chromium
+          google-chrome --version
       - name: Buscar, classificar e entregar vagas
         id: collect
         env:
@@ -58,6 +58,7 @@ jobs:
           ALERTS_IMAP_PASSWORD: ${{ secrets.ALERTS_IMAP_PASSWORD }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PLAYWRIGHT_BROWSER_CHANNEL: chrome
           MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
           SCRAPE_RUN_ID: ${{ inputs.scrape_run_id }}
         run: |
